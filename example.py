@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 import sys
-from cga import CGAScanner, CGAParser, GrammarBuilder
+from cga import CGAScanner, CGAParser, GrammarBuilder, StructureGraphBuilder
 
 if len(sys.argv) != 2:
     print "Usage: python example.py example.cga"
@@ -13,17 +13,18 @@ f.close()
 
 scanner = CGAScanner()
 tokens = scanner.tokenize(input)
-# print tokens
+#print tokens
 
 parser = CGAParser()
 ast =  parser.parse(tokens)
-# print ast
+#print ast
 
 builder = GrammarBuilder(ast)
 grammar = builder.grammar
 print grammar
 
-#structure_graph_builder = StructureGraphBuilder(ast)
-#structure_graph_builder.write_dot(sys.argv[1][:-4] + ".gv")
-#print structure_graph_builder.dependencies
+graph_builder = StructureGraphBuilder(grammar)
+#print graph_builder.graph
+#graph_builder.write_dot(sys.argv[1][:-4])
+graph_builder.write_pdf(sys.argv[1][:-4])
 

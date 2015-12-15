@@ -1,0 +1,269 @@
+/**
+ * File:    facade_mix.cga
+ * Created: 10 Sep 2015 14:09:44 GMT
+ * Author:  stefalie
+ */
+ 
+version "2015.2"
+
+const WHITE_TEX = "assets/white.png"
+const WHITE_COLOR = "#ffffff"
+
+
+// facade dimensions
+const groundFloor_height	= 6
+const floor_height 			= 4
+const lowerGround_height	= 1.2					// lower part of ground floor (darker bricks)
+const upperGround_height	= 6 - 0.7 - 1.2			// upper part of ground floor (lighter bricks)
+
+// facade element sizes
+const base_height			= 0.7					// base around bottom of entire building
+const base_depth			= 0.1
+const door_width			= 2.6
+const door_height			= 4.4
+const door_depth			= 1.8
+const ledge_height			= 0.3
+const ledge_depth			= 0.2
+const window_width			= 1.7
+const window_height 		= 2.6
+const window_depth			= 0.3
+const wallMargin_width		= 1.2
+const pillar_width			= 0.4
+const pillar_depth			= 0.1
+
+// colors
+const wall_color		= "#EED6A2"					// yellow wall of upper floors
+const brick_color		= "#929280"					// brick color of upper part of ground floor (lighter gray)
+const door_color		= "#4F2B21"
+const base_color		= brick_color
+const ledge_color		= brick_color
+const window_color		= brick_color
+const pillar_color		= brick_color
+
+// brick texture
+const brickTex_width	= 3.25
+const brickTex_height	= 1.75
+
+
+// ------------------------------
+// Assets
+// ------------------------------
+
+// assets
+cylinder_asset 			= "/SimpleSternwarte/assets/cylinder.obj"
+dome_asset				= "/SimpleSternwarte/assets/hemisphere.obj"
+base_asset				= "/SimpleSternwarte/assets/base.obj"
+ledge_asset				= "/SimpleSternwarte/assets/midLedge.obj"
+pillar_asset			= "/SimpleSternwarte/assets/pillar_middle.obj"
+windowFrame_asset		= "/SimpleSternwarte/assets/window_frame.obj"
+windowGlass_asset		= "/SimpleSternwarte/assets/window_glass.obj"
+windowWall_asset		= "/SimpleSternwarte/assets/window_wall.obj"
+doorFrame_asset			= "/SimpleSternwarte/assets/door_frame.obj"
+doorWall_asset			= "/SimpleSternwarte/assets/door_wall.obj"
+doorPlane_asset			= "/SimpleSternwarte/assets/door_plane.obj"
+
+// textures
+brickWall_tex			= "/SimpleSternwarte/assets/brickWall.jpg"
+door_tex				= "/SimpleSternwarte/assets/door.jpg"
+
+
+@StartRule
+FrontFacade -->
+	//texture(WHITE_TEX)
+	color(wall_color)
+	alignScopeToGeometry(zUp, 0, world.lowest)
+	split(y) { groundFloor_height : GroundFloorDoor
+			 | {~floor_height	  : Floor}* }
+			 
+GroundFloorWindows -->
+	split(y) { lowerGround_height : Wall
+			 | window_height 	  : split(x) { ~wallMargin_width : Wall
+			 								 | { window_width      : Window
+			   								   | ~wallMargin_width : Wall }*
+			   								 }
+			 | ~1 			 	  : Wall }
+			 
+// ground floor with door
+GroundFloorDoor -->
+	color(brick_color)
+	texture(brickWall_tex)
+	setupProjection(0, scope.xy, brickTex_width, brickTex_height)
+	split(y) { base_height	: Base
+			 | door_height	: split(x) { ~1			: GroundFloorWindows
+			 						   | door_width : Door
+			 						   | ~1			: GroundFloorWindows }
+			 | ~1 		  	: Wall
+			 | ledge_height : Ledge }
+			 		
+// upper floor	 
+Floor -->
+	split(y) { ~1			: split(x) { pillar_width  	  : Pillar
+			 						   | wallMargin_width : Wall
+			 						   | ~1				  : split(x) { pillar_width : Pillar
+			 	 						   							 | ~1 			: Wall
+			 	 						   							 | window_width : split(y) { window_height : Window
+			 	 						   							   						   | ~1 		   : Wall }
+			 	 						   							 | ~1 			: Wall }*
+								 	   | pillar_width	  : Pillar
+			 						   | wallMargin_width : Wall
+			 						   | pillar_width 	  : Pillar }
+			 | ledge_height : Ledge }
+
+Base -->
+	s(scope.sx + 2*base_depth, '1, base_depth)			// extend in x past facade, will get trimmed
+	center(x)
+	i(base_asset)
+	deleteUV(0)
+	color(base_color)
+		 
+
+Ledge -->
+	s(scope.sx + 2* ledge_depth , '1, ledge_depth )		// extend in x past facade, will get trimmed
+	center(x)
+	color(ledge_color)
+	i( ledge_asset )
+	deleteUV(0)
+	
+Door -->
+	s('1, '1, door_depth)
+	DoorWall
+	t(0, 0, -door_depth*0.95)
+	DoorFrame
+	DoorPlane
+	
+DoorFrame -->	
+	i(doorFrame_asset)
+	color(brick_color)
+	deleteUV(0)
+	
+DoorPlane -->
+	i(doorPlane_asset)
+	texture(WHITE_TEX)
+	deleteUV(0)
+	color(wall_color)
+	split(x) { ~1   : Wall
+			 | '0.7 : split(y) { '0.75 : DoorTextureArea
+			 				   | ~1    : Wall }
+			 | ~1   : Wall }
+			 
+DoorTextureArea -->
+	setupProjection(0, scope.xy, '1, '1)
+	color(WHITE_COLOR)
+	texture(door_tex)
+	projectUV(0)
+
+
+//door_assetHeight = assetInfo(doorWall_asset, ty) - assetInfo(doorFrame_asset, ty) + assetInfo(doorWall_asset, sy)
+//doorWall_relSize = assetInfo(doorWall_asset, sy)/door_assetHeight
+const doorWall_relSize = 0.29379887
+DoorWall -->
+	split(y) { ~1 						 : NIL
+			 | scope.sy*doorWall_relSize : i(doorWall_asset)
+			 							   Wall
+			 }
+
+//windowWall_relSize = assetInfo(windowWall_asset, sy)/assetInfo(windowFrame_asset, sy)
+const windowWall_relSize = 0.29196
+
+Window -->
+	s('1, '1, window_depth)
+	WindowFrame
+	WindowGlass
+	[ split(y) { ~1 						   : NIL
+		 	   | scope.sy*windowWall_relSize : i(windowWall_asset) Wall } ]
+
+	
+// frame and inner grid of window
+WindowFrame -->
+	t(0, 0, '-0.8)
+	i(windowFrame_asset)
+	color(brick_color)
+	deleteUV(0)
+	
+// window glass
+WindowGlass -->
+	t(0, 0, '-0.15)
+	i(windowGlass_asset)
+	deleteUV(0)
+    color(0.2,0.2,0.25)
+    set(material.ambient.r,0) set(material.ambient.g,0) set(material.ambient.b,0.1)
+    set(material.specular.r,0.8) set(material.specular.g,0.8) set(material.specular.b,0.8)
+    set(material.reflectivity,0.6) set(material.shininess,50) 
+	
+Pillar -->
+	s('1, '1, pillar_depth)
+	i( pillar_asset )
+	deleteUV(0)
+	color(pillar_color)
+	
+Wall -->
+	projectUV(0)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+attr minheight = 10
+attr maxheight = 30
+attr floorheight = 3
+attr windowwidth = 2
+
+Lot --> extrude(rand(minheight,maxheight)) Components
+
+Components --> comp(f){top : Roof. | side : Facade}
+
+Facade --> split(y){~floorheight : Floor2}*
+
+Floor2 --> split(x){~windowwidth : Window2}*
+
+Window2 --> [ i("modern_window.obj") ]
+
+
+Win2 --> case 10 < 20: A C  case True : Hehe D. else : B
+Win3 --> 50%: A C  20% : Hehe D. else : B
+
+
+Footprint(type) -->
+   case type == "residential" : extrude(10) Envelope
+   case geometry.area/2 < 200 : extrude(30) Envelope
+   else : NIL
+
+
+repeat_example01 --> split(x){ 1: X(2) | {2.7 : X}* | 1: X(3) }
+repeat_example01a --> split(x){ { 2 : X }* | ~1: X(2) } 
+repeat_example01b --> split(x){ ~1: X(2) | {2 : X}* } 
+repeat_example01c --> split(x){ ~1: X | { 2: X(0.5) }* | ~1: X  }
+repeat_example01d --> split(x){ ~1: Y | 0.25: X | ~1: Y }*
+repeat_example01e --> split(x){ 1: X(3) | { ~1: Y | 0.2 : X | ~1: Y }* | 1: X(3) } 
+
+
+rhythm_example01f --> split(x){ { 2: X(2) | 1: Y(1) }* }
+rhythm_example01g --> split(x){ ~2: X(2) | { ~1: Y(1.5) | ~1: Z(1) }* }*
+rhythm_example01h --> split(x){ ~5: X(2) | { ~1: Y(1.5) | { ~1: Y | ~1: Z(1.25) }* }* }*
+
+pr_example01 --> split(x){ ~1: X | { ~1 : Y(2) }* | ~1: X | { ~1 : X(2) }* | ~1: X } 
+pr_example01a --> split(x){ 1: X(2) | {2 : X}* | {1 : Y(1)}* | 1: X(3) }
+
+rel_example01 --> split(x){ '0.5: X | { ~1 :Y }* | 2 : Z | { ~1 :Y }* }
+rel_example02 --> split(x){ '0.382: a | {  '0.618: b } }
+a --> split(x){ '0.382: X | {  '0.618:Y } }
+b --> split(x){ '0.382: X | {  '0.618:Y } }
+
+rel_example03 --> split(x){ '0.382: aa | {  '0.618: bb } }
+aa --> split(x){ '0.382: aa | {  '0.618: cc } }
+bb --> split(x){ '0.382: bb | {  '0.618: d } }
+cc --> split(x){ '0.382: X | {  '0.618: Y } }
+dd --> split(x){ '0.382: X | {  '0.618: Y } }
+
+asadf = 10
+
+asdf(b) = rand(b)

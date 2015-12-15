@@ -7,3 +7,7 @@ cga-parser
  * we distinguish between int/float, real cga doesn't (baaaeh)
  * TODO write this readme
 
+``` bash
+python example.py example.cga
+```
+

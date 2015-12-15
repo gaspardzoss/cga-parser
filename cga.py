@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 
 from spark import GenericScanner, GenericParser, GenericASTTraversal
+import os
 
 class AST(object):
     def __init__(self, token=None, type=None, value=None, children=None):
@@ -691,15 +692,18 @@ class GrammarBuilder(GenericASTTraversal):
         self.grammar.version = node.value
 
     def n_anno_stmt(self, node):
-        print "TODO, anno not implemented yet"
+        # TODO(whoever): statment object should be created here together with
+        # their annotations.
+        #print "TODO, anno not implemented yet"
+        pass
     def n_annotations(self, node):
-        print "TODO, anno not implemented yet"
+        print "TODO, annotations not implemented yet"
     def n_anno(self, node):
         print "TODO, anno not implemented yet"
     def n_handle(self, node):
         print "TODO, handle not implemented yet"
     def n_anno_param(self, node):
-        print "TODO, anno not implemented yet"
+        print "TODO, anno_param not implemented yet"
 
     def n_attr(self, node):
         self.grammar.attrs.append(Attr(node.value, node.children[0].expr))
@@ -807,74 +811,70 @@ class GrammarBuilder(GenericASTTraversal):
         pass
 
 
+class StructureGraphBuilder(object):
+    def __init__(self, grammar):
+        self.grammar = grammar
+        self.graph = {}
+        self.generate_graph()
 
+    def generate_graph(self):
+        def handle_nested_split(lhs, nsplit):
+            for s in nsplit.splits:
+                t = type(s).__name__
+                if t == "Split":
+                    handle_string(lhs, s.successor)
+                elif t == "NestedSplit":
+                    handle_nested_split(lhs, s)
+                else:
+                    print "ERROR: Nested split handling failed!"
 
+        def handle_string(lhs, string):
+            for c in string:
+                t = type(c).__name__
+                if t == "Symbol":
+                    self.graph[lhs].add(c.name)
+                elif t == "Instruction":
+                    pass
+                elif t == "ConditionalRule":
+                    for succ in c.successors:
+                        handle_string(lhs, succ)
+                    handle_string(lhs, c.default)
+                elif t == "StochasticRule":
+                    for succ in c.successors:
+                        handle_string(lhs, succ)
+                    handle_string(lhs, c.default)
+                elif t == "SubdivSplit":
+                    handle_nested_split(lhs, c.nested_split)
+                elif t == "ComponentSplit":
+                    for comp in c.splits:
+                        handle_string(lhs, comp.successor)
+                else:
+                    print "ERROR: Unsupported char type (" + t + ") encountered!"
 
-#class StructureGraphBuilder(GenericASTTraversal):
-#    def __init__(self, ast):
-#        self.dependencies = {}
-#        GenericASTTraversal.__init__(self, ast)
-#        self.postorder()
-#
-#    def n_rule(self, node):
-#        used_symbols = []
-#
-#        def get_symbols(node):
-#            if hasattr(node, 'symbol'):
-#                used_symbols.append(node.symbol)
-#            for c in node.children:
-#                get_symbols(c)
-#        get_symbols(node)
-#
-#        #TODO keywords are incomplete
-#        keywords = [
-#            'extrude', '[', ']', 't', 'r', 's', 'i', 'setupProjection',
-#            'texture', 'projectUV', 'alignScopeToGeometry', 'center', 'color',
-#            'tileUV', 'set', 'NIL', 'deleteUV'
-#        ]
-#        def remove_period(sym):
-#            return sym.replace('.', '_Terminal')
-#        used_symbols = map(remove_period, used_symbols)
-#        def filter_symbol(sym):
-#            if sym in keywords:
-#                return False
-#            return True
-#        self.dependencies[node.value] = set(filter(filter_symbol, used_symbols))
-#
-#    def n_symbol(self, node):
-#        node.symbol = node.value
-#
-#    def default(self, node):
-#        pass
-#
-#    # simple=False is used for merged structure graphs
-#    def write_dot(self, file_name, simple=True):
-#        graph = self.dependencies
-#        if simple:
-#            output = "digraph {\n"
-#            for rule, deps in graph.iteritems():
-#                if deps:
-#                    for d in deps:
-#                        output += "    " + rule + " -> " + d + ";\n"
-#        else:
-#            def eps(name):
-#                return name if name else "_"
-#            def node_name(rule):
-#                return eps(rule[0]) + '_' + eps(rule[1]) 
-#            labels = ""
-#            output = "digraph {\n"
-#            for rule, deps in graph.iteritems():
-#                labels += "    " + node_name(rule)
-#                labels += ' [label="<' + eps(rule[0]) + ', ' + eps(rule[1]) + '>"'
-#                if rule[0] and rule[1]:
-#                    labels += ", fillcolor=green, style=filled"
-#                labels += "];\n"
-#                if deps:
-#                    for d in deps:
-#                        output += "    " + node_name(rule) + " -> " + node_name(d) + ";\n"
-#            output += labels
-#        output += "}"
-#
-#        with file(file_name, 'w') as out:
-#            out.write(output)
+        for rule in self.grammar.rules:
+            lhs = rule.name
+            if lhs in self.graph:
+                print "ERROR: encountered a duplicate of production rule '" + lhs +"'!"
+            self.graph[lhs] = set()
+            handle_string(lhs, rule.successor)
+
+    def write_dot(self, file_name):
+        def node_name(rule):
+            # GraphViz dot cannot handle . in the node names.
+            return rule.replace('.', '_')
+        labels = ""
+        output = "digraph {\n"
+        for rule, deps in self.graph.iteritems():
+            labels += "    " + node_name(rule) + ' [label="' + rule + '"];\n'
+            for d in deps:
+                output += "    " + node_name(rule) + " -> " + node_name(d) + ";\n"
+        output += labels
+        output += "}"
+
+        with file(file_name + ".gv", 'w') as out:
+            out.write(output)
+
+    def write_pdf(self, file_name):
+        self.write_dot(file_name)
+        os.system("dot -Tpdf " + file_name + ".gv -o " + file_name + ".pdf")
 
