@@ -850,12 +850,99 @@ class StructureGraphBuilder(object):
                         handle_string(lhs, comp.successor)
                 else:
                     print "ERROR: Unsupported char type (" + t + ") encountered!"
+         
+        def merge_attrs(old,new,repeat = False):
+            if repeat:
+                for attr in new:
+                    if attr in old:
+                        old[attr] += new[attr] + repeat
+                    else:
+                        old[attr] = new[attr] + repeat
+            else:
+                for attr in new:
+                    if attr in old:
+                        old[attr] += new[attr]
+                    else:
+                        old[attr] = new[attr]
+                
+            
+        
+        def handle_param_nested_split(lhs, nsplit):
+            attrs = {}
+            for s in nsplit.splits:
+                t = type(s).__name__
+                if t == "Split":
+                    merge_attrs(attrs,get_params_from_expr(s.expr))
+                    merge_attrs(attrs,handle_params(lhs, s.successor))
+                elif t == "NestedSplit":
+                    repeat_split = s.repeated #Bool is auto-promoted to int for addition
+                    merge_attrs(attrs,handle_param_nested_split(lhs, s),repeat_split)
+                else:
+                    print "ERROR: Nested split handling failed in parameter extraction!" 
+            return attrs;
+          
+        def get_params_from_expr(expr):
+            attrs = {}
+            t = type(expr).__name__
+            if t == "Parameter":
+                merge_attrs(attrs,get_params_from_expr(expr.expr))
+            elif t == "NameExpr": #base case
+                attrs[expr.name]=1
+            elif t == "ValueExpr": 
+                return {}
+            elif t == "OpExpr": 
+                merge_attrs(attrs,get_params_from_expr(expr.left))
+                merge_attrs(attrs,get_params_from_expr(expr.right))
+            elif t == "BracketExpr": 
+                return {}
+            elif t == "CaseExpr": 
+                return {}
+            elif t == "ProbExpr": 
+                return {}
+            else:
+                print "ERROR: Unsupported char type (" + t + ") encountered when parsing expression!"
+            return attrs;
+        
+                    
+        def handle_params(lhs,successors):
+            attrs = {}
+            for suc in successors:
+                t = type(suc).__name__
+                if t == "Symbol":
+                    pass #TODO           
+                elif t == "Instruction":
+                    for param in suc.params:
+                        merge_attrs(attrs,get_params_from_expr(param))
+                elif t == "ConditionalRule":
+                    for cond in suc.conditions:
+                        merge_attrs(attrs,get_params_from_expr(cond))
+                    for suc2 in suc.successors:
+                        merge_attrs(attrs,handle_params(lhs, suc2))
+                    merge_attrs(attrs,handle_params(lhs, suc.default))
+                elif t == "StochasticRule":   
+                    for prob in suc.probabilities:
+                        merge_attrs(attrs,get_params_from_expr(prob))
+                    for suc2 in suc.successors:
+                        merge_attrs(attrs,handle_params(lhs, suc2))
+                    merge_attrs(attrs,handle_params(lhs, suc.default))                   
+                elif t == "SubdivSplit":
+                    print "Dat split, yo! " + str(suc.direction)
+                    merge_attrs(attrs,handle_param_nested_split(lhs, suc.nested_split),suc.nested_split.repeated)
+                elif t == "ComponentSplit":
+                    for comp in suc.splits:
+                        merge_attrs(attrs,handle_params(lhs, comp.successor))
+                else:
+                    print "ERROR: Parameter extraction encountered unsupported char type (" + t + ") encountered!"  
+            return attrs;
 
-        for rule in self.grammar.rules:
+
+        self.params = {}
+        for rule in self.grammar.rules:            
             lhs = rule.name
             if lhs in self.graph:
                 print "ERROR: encountered a duplicate of production rule '" + lhs +"'!"
             self.graph[lhs] = set()
+            self.params[lhs] = handle_params(lhs, rule.successor)
             handle_string(lhs, rule.successor)
 
     def write_dot(self, file_name):
