@@ -348,7 +348,7 @@ class CGAParser(GenericParser):
         return AST(type='split_list', children=args[1])
     def p_sub_split_2(self, args):
         ' sub_split ::= { split_list } * '
-        return AST(type='split_list', value=args[3].value, children=args[1])
+        return AST(type='split_list', value=args[3].type, children=args[1])
     def p_split_list_1(self, args):
         ' split_list ::= split_pair | split_list '
         return [args[0]] + args[2]
