@@ -952,7 +952,10 @@ class StructureGraphBuilder(object):
         labels = ""
         output = "digraph {\n"
         for rule, deps in self.graph.iteritems():
-            labels += "    " + node_name(rule) + ' [label="' + rule + '"];\n'
+            labels += "    " + node_name(rule) + ' [label=<"' + rule + '"'
+            for attr in self.params[rule]:
+                labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+'</FONT>'
+            labels +='>];\n'
             for d in deps:
                 output += "    " + node_name(rule) + " -> " + node_name(d) + ";\n"
         output += labels
