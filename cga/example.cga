@@ -11,34 +11,34 @@ const WHITE_COLOR = "#ffffff"
 
 
 // facade dimensions
-const groundFloor_height	= 6
-const floor_height 			= 4
-const lowerGround_height	= 1.2					// lower part of ground floor (darker bricks)
-const upperGround_height	= 6 - 0.7 - 1.2			// upper part of ground floor (lighter bricks)
+attr groundFloor_height	= 6
+attr floor_height 			= 4
+attr lowerGround_height	= 1.2					// lower part of ground floor (darker bricks)
+attr upperGround_height	= 6 - 0.7 - 1.2			// upper part of ground floor (lighter bricks)
 
 // facade element sizes
-const base_height			= 0.7					// base around bottom of entire building
-const base_depth			= 0.1
-const door_width			= 2.6
-const door_height			= 4.4
-const door_depth			= 1.8
-const ledge_height			= 0.3
-const ledge_depth			= 0.2
-const window_width			= 1.7
-const window_height 		= 2.6
-const window_depth			= 0.3
-const wallMargin_width		= 1.2
-const pillar_width			= 0.4
-const pillar_depth			= 0.1
+attr base_height			= 0.7					// base around bottom of entire building
+attr base_depth			= 0.1
+attr door_width			= 2.6
+attr door_height			= 4.4
+attr door_depth			= 1.8
+attr ledge_height			= 0.3
+attr ledge_depth			= 0.2
+attr window_width			= 1.7
+attr window_height 		= 2.6
+attr window_depth			= 0.3
+attr wallMargin_width		= 1.2
+attr pillar_width			= 0.4
+attr pillar_depth			= 0.1
 
 // colors
-const wall_color		= "#EED6A2"					// yellow wall of upper floors
-const brick_color		= "#929280"					// brick color of upper part of ground floor (lighter gray)
-const door_color		= "#4F2B21"
-const base_color		= brick_color
-const ledge_color		= brick_color
-const window_color		= brick_color
-const pillar_color		= brick_color
+attr wall_color		= "#EED6A2"					// yellow wall of upper floors
+attr brick_color		= "#929280"					// brick color of upper part of ground floor (lighter gray)
+attr door_color		= "#4F2B21"
+attr base_color		= brick_color
+attr ledge_color		= brick_color
+attr window_color		= brick_color
+attr pillar_color		= brick_color
 
 // brick texture
 const brickTex_width	= 3.25

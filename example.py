@@ -7,13 +7,13 @@ if len(sys.argv) != 2:
     sys.exit(0)
 
 filename = sys.argv[1]
-f = open(filename)
+f = open("cga/"+ filename)
 input = f.read()
 f.close()
 
 scanner = CGAScanner()
 tokens = scanner.tokenize(input)
-#print tokens
+print tokens
 
 parser = CGAParser()
 ast =  parser.parse(tokens)

@@ -95,6 +95,7 @@ class Scanner(GenericScanner):
 
     def t_string(self, s):
         r'"[^"]*"'
+        print "su: " + s
         self.rv.append(Token(type='string', value=s))
 
 class SubScanner(Scanner):
@@ -110,7 +111,7 @@ class SubScanner(Scanner):
         self.rv.append(Token(type='handle', value=s))
 
     def t_comment(self, s):
-        r'\/\*(.|\r|\n|\r\n|)*?\*\/|\/\/.*'
+        r'\/\*(.|\r|\n|\r\n|)*?\*\/|\/\/.*|#.*'
         #self.rv.append(Token(type='comment', value=s))
         pass
 
@@ -810,6 +811,16 @@ class GrammarBuilder(GenericASTTraversal):
     def default(self, node):
         pass
 
+class StructuralAggregationNode(object):
+    def __init__(self,name,predecessor = None, attrs = None, successors = None):
+        self.predecessor = predecessor
+        self.name = name
+        if attrs is None:
+            attrs = {}
+        self.attrs = attrs
+        if successors is None:
+            successors = {}
+        self.successors = successors
 
 class StructureGraphBuilder(object):
     def __init__(self, grammar):
@@ -818,81 +829,86 @@ class StructureGraphBuilder(object):
         self.generate_graph()
 
     def generate_graph(self):
-        def handle_nested_split(lhs, nsplit):
+         
+        def merge_dicts(old,new,repeat = False):
+            if repeat:
+                for key in new:
+                    old[key] = -1
+            else:
+                for key in new:
+                    if key in old:
+                        if old[key]>=0:
+                            old[key] += new[key]
+                    else:
+                        old[key] = new[key]
+
+        def handle_suc_nested_split(lhs, nsplit):
+            sucs = {}
             for s in nsplit.splits:
                 t = type(s).__name__
                 if t == "Split":
-                    handle_string(lhs, s.successor)
+                    merge_dicts(sucs,handle_suc(lhs, s.successor))
                 elif t == "NestedSplit":
-                    handle_nested_split(lhs, s)
+                    print "Dat nested split"
+                    repeat_split = s.repeated #Bool is auto-promoted to int for addition
+                    merge_dicts(sucs,handle_suc_nested_split(lhs, s),repeat_split)
                 else:
                     print "ERROR: Nested split handling failed!"
+            return sucs;
 
-        def handle_string(lhs, string):
+        def handle_suc(lhs, string):
+            sucs = {}
             for c in string:
                 t = type(c).__name__
                 if t == "Symbol":
                     self.graph[lhs].add(c.name)
+                    sucs[c.name] = 1;
                 elif t == "Instruction":
                     pass
                 elif t == "ConditionalRule":
                     for succ in c.successors:
-                        handle_string(lhs, succ)
-                    handle_string(lhs, c.default)
+                        handle_suc(lhs, succ)
+                    merge_dicts(sucs,handle_suc(lhs, c.default))
                 elif t == "StochasticRule":
                     for succ in c.successors:
-                        handle_string(lhs, succ)
-                    handle_string(lhs, c.default)
+                        handle_suc(lhs, succ)
+                    merge_dicts(sucs,handle_suc(lhs, c.default))
                 elif t == "SubdivSplit":
-                    handle_nested_split(lhs, c.nested_split)
+                    merge_dicts(sucs,handle_suc_nested_split(lhs, c.nested_split),c.nested_split.repeated)
                 elif t == "ComponentSplit":
                     for comp in c.splits:
-                        handle_string(lhs, comp.successor)
+                        merge_dicts(sucs,handle_suc(lhs, comp.successor))
                 else:
                     print "ERROR: Unsupported char type (" + t + ") encountered!"
-         
-        def merge_attrs(old,new,repeat = False):
-            if repeat:
-                for attr in new:
-                    if attr in old:
-                        old[attr] += new[attr] + repeat
-                    else:
-                        old[attr] = new[attr] + repeat
-            else:
-                for attr in new:
-                    if attr in old:
-                        old[attr] += new[attr]
-                    else:
-                        old[attr] = new[attr]
-                
-            
-        
+            return sucs;
+
         def handle_param_nested_split(lhs, nsplit):
             attrs = {}
             for s in nsplit.splits:
                 t = type(s).__name__
                 if t == "Split":
-                    merge_attrs(attrs,get_params_from_expr(s.expr))
-                    merge_attrs(attrs,handle_params(lhs, s.successor))
+                    merge_dicts(attrs,get_params_from_expr(s.expr))
+                    merge_dicts(attrs,handle_params(lhs, s.successor))
                 elif t == "NestedSplit":
+                    print "Dat nested split"
                     repeat_split = s.repeated #Bool is auto-promoted to int for addition
-                    merge_attrs(attrs,handle_param_nested_split(lhs, s),repeat_split)
+                    merge_dicts(attrs,handle_param_nested_split(lhs, s),repeat_split)
                 else:
                     print "ERROR: Nested split handling failed in parameter extraction!" 
             return attrs;
-          
+
         def get_params_from_expr(expr):
             attrs = {}
             t = type(expr).__name__
             if t == "Parameter":
-                merge_attrs(attrs,get_params_from_expr(expr.expr))
+                merge_dicts(attrs,get_params_from_expr(expr.expr))
             elif t == "NameExpr": #base case
                 attrs[expr.name]=1
             elif t == "ValueExpr": 
                 return {}
             elif t == "OpExpr": 
-                merge_attrs(attrs,get_params_from_expr(expr.left))
-                merge_attrs(attrs,get_params_from_expr(expr.right))
+                merge_dicts(attrs,get_params_from_expr(expr.left))
+                merge_dicts(attrs,get_params_from_expr(expr.right))
             elif t == "BracketExpr": 
                 return {}
             elif t == "CaseExpr": 
@@ -902,8 +918,7 @@ class StructureGraphBuilder(object):
             else:
                 print "ERROR: Unsupported char type (" + t + ") encountered when parsing expression!"
             return attrs;
-        
-                    
+
         def handle_params(lhs,successors):
             attrs = {}
             for suc in successors:
@@ -911,41 +926,419 @@ class StructureGraphBuilder(object):
                 if t == "Symbol":
                     pass #TODO           
                 elif t == "Instruction":
-                    for param in suc.params:
-                        merge_attrs(attrs,get_params_from_expr(param))
+                    if (not suc.name == "s") and (not suc.name == "t"):
+                        for param in suc.params:
+                            merge_dicts(attrs,get_params_from_expr(param))
                 elif t == "ConditionalRule":
                     for cond in suc.conditions:
-                        merge_attrs(attrs,get_params_from_expr(cond))
+                        merge_dicts(attrs,get_params_from_expr(cond))
                     for suc2 in suc.successors:
-                        merge_attrs(attrs,handle_params(lhs, suc2))
-                    merge_attrs(attrs,handle_params(lhs, suc.default))
+                        merge_dicts(attrs,handle_params(lhs, suc2))
+                    merge_dicts(attrs,handle_params(lhs, suc.default))
                 elif t == "StochasticRule":   
                     for prob in suc.probabilities:
-                        merge_attrs(attrs,get_params_from_expr(prob))
+                        merge_dicts(attrs,get_params_from_expr(prob))
                     for suc2 in suc.successors:
-                        merge_attrs(attrs,handle_params(lhs, suc2))
-                    merge_attrs(attrs,handle_params(lhs, suc.default))                   
+                        merge_dicts(attrs,handle_params(lhs, suc2))
+                    merge_dicts(attrs,handle_params(lhs, suc.default))                   
                 elif t == "SubdivSplit":
                     print "Dat split, yo! " + str(suc.direction)
-                    merge_attrs(attrs,handle_param_nested_split(lhs, suc.nested_split),suc.nested_split.repeated)
+                    merge_dicts(attrs,handle_param_nested_split(lhs, suc.nested_split),suc.nested_split.repeated)
                 elif t == "ComponentSplit":
                     for comp in suc.splits:
-                        merge_attrs(attrs,handle_params(lhs, comp.successor))
+                        merge_dicts(attrs,handle_params(lhs, comp.successor))
                 else:
                     print "ERROR: Parameter extraction encountered unsupported char type (" + t + ") encountered!"  
             return attrs;
 
-
         self.params = {}
+        self.count = {}
+        self.attrs = {}
+        for attr in self.grammar.attrs:
+            self.attrs[attr.name] = 1
         for rule in self.grammar.rules:            
             lhs = rule.name
             if lhs in self.graph:
                 print "ERROR: encountered a duplicate of production rule '" + lhs +"'!"
             self.graph[lhs] = set()
             self.params[lhs] = handle_params(lhs, rule.successor)
-            handle_string(lhs, rule.successor)
+            self.count[lhs] = handle_suc(lhs, rule.successor)
+            print str(self.count[lhs])
+
+#class StructuralAggregationNode(object):
+#    def __init__(self,name,predecessor = None, attrs = {}, successors = {}):
+#        self.predecessor = predecessor
+#        self.name = name
+#        self.attrs = attrs
+#        self.successors = successors
+
+    def write_slightly_reduced_dot(self, file_name):
+        def node_name(rule):
+            # GraphViz dot cannot handle . in the node names.
+            return rule.replace('.', '_')
+        
+        def mark_visited(rule,mapping_from,visited,starting_rules):
+            visited.append(rule)
+            rule_stack = mapping_from[rule]
+            while rule_stack:
+                iter_rule = rule_stack.pop()
+                if visited.count(iter_rule)==0:
+                    visited.append(iter_rule)
+                    if iter_rule in mapping_from:
+                        rule_stack.extend(mapping_from[iter_rule])
+                    else:
+                        starting_rules.append(iter_rule)
+        
+        def find_structural_nodes(s_rule,pred,mapping,params,counts,attrs):
+            
+            def add_attributes(node,rule,params,attrs):
+                for attr in params[rule]:
+                    if attr in attrs:
+                        if params[rule][attr] > 0:
+                            node.attrs[attr] = params[rule][attr]
+            
+            def select_node(rule,pred,mapping,params,counts,attrs,node_dict):
+                if rule in params and params[rule]:#found attr node and not empty
+                    node = StructuralAggregationNode(rule)
+                    add_attributes(node,rule,params,attrs)
+                    if node.attrs:
+                        node_dict[node.name] = node
+                        return node
+                    else:
+                        return None
+                elif pred is not None and pred in counts and rule in counts[pred] and counts[pred][rule]<0:
+                    print "BAZZINGA"
+                    node = StructuralAggregationNode(rule)
+                    node_dict[node.name] = node
+                    return node
+                else:
+                    return None
+            
+            def merge_node(child,rule,mapping,params,counts,attrs):
+                if rule in params:
+                    node =  StructuralAggregationNode(rule)
+                    for attr in params[rule]:
+                        node.attrs[attr] = params[rule][attr]
+                    for attr in child.attrs:
+                        if attr in node.attrs:
+                            node.attrs[attr] += child.attrs[attr]
+                        else:
+                            node.attrs[attr] = child.attrs[attr]
+                else:
+                    return StructuralAggregationNode(rule,child.params)
+            
+            def locate_successors(s_rule,pred,mapping,params,counts,attrs,node_dict):
+                print "locating successors of ... " + s_rule
+                children = []
+                for rule in mapping[s_rule]:#for each succesor
+                    print "testing " + rule
+                    if rule == "Window":
+                        a=1
+                    if rule == s_rule:
+                        continue
+                    if rule in mapping:#traverse until bottom
+                        if rule in node_dict:
+                            child = node_dict[rule]
+                        else:
+                            child = locate_successors(rule,s_rule,mapping,params,counts,attrs,node_dict)
+                    else:#visit leaves
+                        child = select_node(rule,s_rule,mapping,params,counts,attrs,node_dict)
+                    if child is None:#no child
+                        continue
+                    else:
+                        children.append(child)
+                print children
+                if children:
+                    node = StructuralAggregationNode(s_rule)
+                    if s_rule in params and params[s_rule]: 
+                        add_attributes(node,s_rule,params,attrs)
+                    for c in children:
+                        if c.attrs:
+                            node.successors[c.name] = c
+                        elif counts[node.name][c.name] < 0:
+                            node.successors[c.name] = c
+                        else: #can be merged away
+                            for name,c2 in c.successors.iteritems():
+                                node.successors[name] = c2
+                            
+                    node_dict[node.name] = node
+                    return node
+                else:
+                    node = StructuralAggregationNode(s_rule)
+                    if s_rule in params and params[s_rule]:
+                        add_attributes(node,s_rule,params,attrs)
+                    if node.attrs:
+                        node_dict[node.name] = node
+                        return node
+                    else:
+                        return None
+                
+            #test children for importance
+            node_dict = {}
+            return locate_successors(s_rule,pred,mapping,params,counts,attrs,node_dict)
+        
+        #obtain predecessors and successors
+        mapping_to = {}
+        mapping_from = {}
+        for rule, deps in self.graph.iteritems():
+            for d in deps:
+                if rule in mapping_to:
+                    mapping_to[rule].append(d)
+                else:
+                    mapping_to[rule] = [d]
+                if d in mapping_from:
+                    mapping_from[d].append(rule)
+                else:
+                    mapping_from[d] = [rule]
+                    
+        #find starting rules
+        visited = []
+        starting_rules = []
+        for rule, deps in self.graph.iteritems():
+            if rule not in visited:
+                if rule in mapping_from:
+                    mark_visited(rule,mapping_from,visited,starting_rules);
+                else:
+                    starting_rules.append(rule)
+                    visited.append(rule)
+        
+        reduced_structure_graphs = {}
+        for starting_rule in starting_rules:
+            reduced_structure_graphs[starting_rule] = find_structural_nodes(starting_rule,None,mapping_to,self.params,self.count,self.attrs)
+        
+        visited = {}
+        labels = ""
+        output = "digraph {\n"
+        for starting_rule in starting_rules:
+            if starting_rule != "FrontFacade":
+                continue
+            rule = reduced_structure_graphs[starting_rule]
+            if rule is None:
+                continue
+            rule_stack = [rule]
+            while rule_stack:
+                rule_node = rule_stack.pop()
+                if rule_node.name == "Window":
+                    a=1
+                if rule_node.name in visited:
+                    continue
+                else:
+                    visited[rule_node.name]=1
+                for node in rule_node.successors.iteritems():
+                    rule_stack.append(node[1])
+                deps = rule_node.successors
+                rule = rule_node.name
+                labels += "    " + node_name(rule) + ' [label=<"' + rule + '"'
+                if rule in self.params:
+                    for attr in self.params[rule]:
+                        if attr in self.attrs:
+                            if self.params[rule][attr] > 0:
+                                labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self.params[rule][attr])+'</FONT>'
+                            else:
+                                labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+                labels +='>];\n'
+                for d in deps:
+                    output += '    ' + node_name(rule) + ' -> ' + node_name(d)
+                    if d in self.count[rule]:
+                        if self.count[rule][d] > 0:
+                            output += '[label="'+str(self.count[rule][d])+'"];\n'
+                        else:
+                            output += '[label="n"];\n'
+                    else:
+                        output += '[label="1"];\n'
+                        
+            output += labels
+        output += "}"
+
+        with file(file_name[0:3]+"slightly_reduced_" + file_name[3:] + ".gv", 'w') as out:
+            out.write(output)
+
+    def write_strictly_reduced_dot(self, file_name):
+        def node_name(rule):
+            # GraphViz dot cannot handle . in the node names.
+            return rule.replace('.', '_')
+        
+        def mark_visited(rule,mapping_from,visited,starting_rules):
+            visited.append(rule)
+            rule_stack = mapping_from[rule]
+            while rule_stack:
+                iter_rule = rule_stack.pop()
+                if visited.count(iter_rule)==0:
+                    visited.append(iter_rule)
+                    if iter_rule in mapping_from:
+                        rule_stack.extend(mapping_from[iter_rule])
+                    else:
+                        starting_rules.append(iter_rule)
+        
+        def find_structural_nodes(s_rule,pred,mapping,params,counts,attrs):
+            
+            def add_attributes(node,rule,params,attrs):
+                for attr in params[rule]:
+                    if attr in attrs:
+                        if params[rule][attr] > 0:
+                            if attr in node.attrs:
+                                node.attrs[attr] += params[rule][attr]
+                            else:
+                                node.attrs[attr] = params[rule][attr]
+            
+            def select_node(rule,pred,mapping,params,counts,attrs,node_dict):
+                if rule in params and params[rule]:#found attr node and not empty
+                    node = StructuralAggregationNode(rule)
+                    add_attributes(node,rule,params,attrs)
+                    if node.attrs:
+                        node_dict[node.name] = node
+                        return node
+                    else:
+                        return None
+                elif pred is not None and pred in counts and rule in counts[pred] and counts[pred][rule]<0:
+                    print "BAZZINGA"
+                    node = StructuralAggregationNode(rule)
+                    node_dict[node.name] = node
+                    return node
+                else:
+                    return None
+            
+            def clean_node(node,mapping,params,counts,attrs):
+                rule = node.name
+                new_sucs = {}
+                for suc_rule, suc_node in node.successors.iteritems():
+                    if rule in counts and suc_rule in counts[rule] and counts[rule][suc_rule]==1:
+                        add_attributes(node,suc_rule,params,attrs)
+                        for suc2_rule, suc2_node in suc_node.successors.iteritems():
+                            new_sucs[suc2_rule]=suc2_node
+                    else:
+                        new_sucs[suc_rule]=suc_node
+                node.successors = new_sucs
+                        
+            
+            def locate_successors(s_rule,pred,mapping,params,counts,attrs,node_dict):
+                print "locating successors of ... " + s_rule
+                children = []
+                for rule in mapping[s_rule]:#for each succesor
+                    print "testing " + rule
+                    if rule == "Window":
+                        a=1
+                    if rule == s_rule:
+                        continue
+                    if rule in mapping:#traverse until bottom
+                        if rule in node_dict:
+                            child = node_dict[rule]
+                        else:
+                            child = locate_successors(rule,s_rule,mapping,params,counts,attrs,node_dict)
+                    else:#visit leaves
+                        child = select_node(rule,s_rule,mapping,params,counts,attrs,node_dict)
+                    if child is None:#no child
+                        continue
+                    else:
+                        children.append(child)
+                print children
+                if children:
+                    node = StructuralAggregationNode(s_rule)
+                    if s_rule in params and params[s_rule]: 
+                        add_attributes(node,s_rule,params,attrs)
+                    for c in children:
+                        if c.attrs:
+                            node.successors[c.name] = c
+                        elif counts[node.name][c.name] < 0:
+                            node.successors[c.name] = c
+                        elif counts[node.name][c.name] == 1: #can be merged away
+                            for name,c2 in c.successors.iteritems():
+                                node.successors[name] = c2
+                    
+                    clean_node(node,mapping,params,counts,attrs)
+                    node_dict[node.name] = node
+                    return node
+                else:
+                    node = StructuralAggregationNode(s_rule)
+                    if s_rule in params and params[s_rule]:
+                        add_attributes(node,s_rule,params,attrs)
+                    if node.attrs:
+                        node_dict[node.name] = node
+                        return node
+                    else:
+                        return None
+                
+            #test children for importance
+            node_dict = {}
+            return locate_successors(s_rule,pred,mapping,params,counts,attrs,node_dict)
+        
+        #obtain predecessors and successors
+        mapping_to = {}
+        mapping_from = {}
+        for rule, deps in self.graph.iteritems():
+            for d in deps:
+                if rule in mapping_to:
+                    mapping_to[rule].append(d)
+                else:
+                    mapping_to[rule] = [d]
+                if d in mapping_from:
+                    mapping_from[d].append(rule)
+                else:
+                    mapping_from[d] = [rule]
+                    
+        #find starting rules
+        visited = []
+        starting_rules = []
+        for rule, deps in self.graph.iteritems():
+            if rule not in visited:
+                if rule in mapping_from:
+                    mark_visited(rule,mapping_from,visited,starting_rules);
+                else:
+                    starting_rules.append(rule)
+                    visited.append(rule)
+        
+        reduced_structure_graphs = {}
+        for starting_rule in starting_rules:
+            reduced_structure_graphs[starting_rule] = find_structural_nodes(starting_rule,None,mapping_to,self.params,self.count,self.attrs)
+        
+        visited = {}
+        labels = ""
+        output = "digraph {\n"
+        for starting_rule in starting_rules:
+            if starting_rule != "FrontFacade":
+                continue
+            rule = reduced_structure_graphs[starting_rule]
+            if rule is None:
+                continue
+            rule_stack = [rule]
+            while rule_stack:
+                rule_node = rule_stack.pop()
+                if rule_node.name == "Window":
+                    a=1
+                if rule_node.name in visited:
+                    continue
+                else:
+                    visited[rule_node.name]=1
+                for node in rule_node.successors.iteritems():
+                    rule_stack.append(node[1])
+                deps = rule_node.successors
+                rule = rule_node.name
+                labels += "    " + node_name(rule) + ' [label=<"' + rule + '"'
+                for attr in rule_node.attrs:
+                    if rule_node.attrs[attr] > 0:
+                        labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(rule_node.attrs[attr])+'</FONT>'
+                    else:
+                        labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+                labels +='>];\n'
+                for d in deps:
+                    output += '    ' + node_name(rule) + ' -> ' + node_name(d)
+                    if d in self.count[rule]:
+                        if self.count[rule][d] > 0:
+                            output += '[label="'+str(self.count[rule][d])+'"];\n'
+                        else:
+                            output += '[label="n"];\n'
+                    else:
+                        output += '[label="1"];\n'
+                        
+            output += labels
+        output += "}"
+
+        with file(file_name[0:3]+"strictly_reduced_" + file_name[3:] + ".gv", 'w') as out:
+            out.write(output)
 
     def write_dot(self, file_name):
+        self.write_slightly_reduced_dot(file_name)
+        self.write_strictly_reduced_dot(file_name)
         def node_name(rule):
             # GraphViz dot cannot handle . in the node names.
             return rule.replace('.', '_')
@@ -954,10 +1347,22 @@ class StructureGraphBuilder(object):
         for rule, deps in self.graph.iteritems():
             labels += "    " + node_name(rule) + ' [label=<"' + rule + '"'
             for attr in self.params[rule]:
-                labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+'</FONT>'
+                if attr in self.attrs:
+                    if self.params[rule][attr] > 0:
+                        labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self.params[rule][attr])+'</FONT>'
+                    else:
+                        labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
             labels +='>];\n'
             for d in deps:
-                output += "    " + node_name(rule) + " -> " + node_name(d) + ";\n"
+                output += '    ' + node_name(rule) + ' -> ' + node_name(d)
+                if d in self.count[rule]:
+                    if self.count[rule][d] > 0:
+                        output += '[label="'+str(self.count[rule][d])+'"];\n'
+                    else:
+                        output += '[label="n"];\n'
+                else:
+                    output += '[label="1"];\n'
+                    
         output += labels
         output += "}"
 
@@ -965,6 +1370,6 @@ class StructureGraphBuilder(object):
             out.write(output)
 
     def write_pdf(self, file_name):
-        self.write_dot(file_name)
-        os.system("dot -Tpdf " + file_name + ".gv -o " + file_name + ".pdf")
-
+        file_name2 = "gv/"+file_name
+        self.write_dot(file_name2)
+        os.system("dot -Tpdf " + file_name2 + ".gv -o " + file_name2 + ".pdf")
