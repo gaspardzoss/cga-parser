@@ -1032,8 +1032,6 @@ class StructureGraphBuilder(object):
                 children = []
                 for rule in mapping[s_rule]:#for each succesor
                     print "testing " + rule
-                    if rule == "Window":
-                        a=1
                     if rule == s_rule:
                         continue
                     if rule in mapping:#traverse until bottom
@@ -1118,8 +1116,6 @@ class StructureGraphBuilder(object):
             rule_stack = [rule]
             while rule_stack:
                 rule_node = rule_stack.pop()
-                if rule_node.name == "Window":
-                    a=1
                 if rule_node.name in visited:
                     continue
                 else:
@@ -1303,8 +1299,6 @@ class StructureGraphBuilder(object):
             rule_stack = [rule]
             while rule_stack:
                 rule_node = rule_stack.pop()
-                if rule_node.name == "Window":
-                    a=1
                 if rule_node.name in visited:
                     continue
                 else:
