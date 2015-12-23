@@ -13,7 +13,7 @@ f.close()
 
 scanner = CGAScanner()
 tokens = scanner.tokenize(input)
-print tokens
+#print tokens
 
 parser = CGAParser()
 ast =  parser.parse(tokens)

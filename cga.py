@@ -76,7 +76,7 @@ class Scanner(GenericScanner):
         pass
 
     def t_symbol(self, s):
-        r"~|'|\.|:|\||,|\(|\)|{|}|\[|\]|-->|\*|\/|%|\+|\-|==|<=|>=|<|>|=|!=|!|&&|\|\|"
+        r"~|'|\.|:|\|\||\||,|\(|\)|{|}|\[|\]|-->|\*|\/|%|\+|\-|==|<=|>=|<|>|=|!=|!|&&"
         self.rv.append(Token(type=s))
 
     def t_name(self, s):
@@ -111,7 +111,7 @@ class SubScanner(Scanner):
         self.rv.append(Token(type='handle', value=s))
 
     def t_comment(self, s):
-        r'\/\*(.|\r|\n|\r\n|)*?\*\/|\/\/.*|#.*'
+        r'\/\*(.|\r|\n|\r\n|)*?\*\/|\/\/.*|\#.*'
         #self.rv.append(Token(type='comment', value=s))
         pass
 

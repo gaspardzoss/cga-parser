@@ -305,6 +305,8 @@ class GenericParser:
 
 	def error(self, token):
 		print "Syntax error at or near `%s' token in `%s'" % (token[1], token)
+		for t in token:#detailed error output added by jugdemon
+			print str(t)
 		raise SystemExit
 
 	def parse(self, tokens):
