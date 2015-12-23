@@ -755,7 +755,7 @@ class GrammarBuilder(GenericASTTraversal):
         # List of everything that's neither Terminal nor Non-Terminal.
         instruction_keywords = [
             'extrude', '[', ']', 't', 'r', 's', 'i', 'setupProjection',
-            'texture', 'projectUV', 'alignScopeToGeometry', 'center', 'color',
+            'texture', 'projectUV', 'translateUV', 'alignScopeToGeometry', 'center', 'color',
             'tileUV', 'set', 'NIL', 'deleteUV'
         ]
         if node.value in instruction_keywords:
