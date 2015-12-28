@@ -25,11 +25,10 @@ attr FloorHeight 		= 3.5
 attr GroundfloorHeight 	= 4.3
 @Order(3) @Range(1.5,5)
 
-@handle(shape=Tile^1, reference=origin, axis=x, transform={0,0,1}, align=bottom )
 attr TileWidth 		 	= 3.55
 @Order(4) @Range(0.5,3)
 
-@handle(shape=Cornice, axis=z, align=Right, repeat=none )
+@handle(shape=Cornice, axis=z, align=right, repeat=none )
 attr CorniceOverhang 	= 1.2
 
 @Group("Windows",4)
@@ -38,7 +37,6 @@ attr CorniceOverhang 	= 1.2
 attr WindowHeight		= 2.05
 @Order(2) @Range(1,4)
 
-@handle(shape=Tile, axis=x, reference=origin, treeKeyShape=auto, translate={0,0,0.2}, align=bottom )
 attr FrontWindowWidth	= 2.15
 @Order(3) @Range(0.5,2)
 attr RearWindowWidth	= 1.2
@@ -58,7 +56,7 @@ attr ColorizeWall		= "#FCEFE2"
 attr onStreet		= true
 
 const dividerW	= 0.25
-const sillH		= case FloorHeight>WindowHeight+SillSize: (FloorHeight-WindowHeight)*0.66 else: SillSize
+const sillH		= SillSize #case FloorHeight>WindowHeight+SillSize: (FloorHeight-WindowHeight)*0.66 else: SillSize
 
 @Handle (type=Pull, shape=Story3^1, treeKeyShape=Story^1, axis=x-, drawMode=Sphere)
 attr xNeg = 0
@@ -70,59 +68,12 @@ attr zNeg = 0
 @Handle (type=Pull, shape=Story3^1, treeKeyShape=Story^1, axis=z, drawMode=Sphere)
 attr zPos = 0
 
-Lot --> extrude (BuildingHeight)
-		Lot2
-	
-Lot2-->
-		set(onStreet,true)
-		split(y){ GroundfloorHeight: Story(1)
-			| ~12 : Story2(FloorHeight, 2) 
-			| ~3  : Story2(FloorHeight, 3)
-			| 2.5 : Story(4) }
-
-Story2(y, x) -->
-	split(y) {
-	y : Story(x)
-	}*
-	
-
-Base2 -->
-	Base
-
-Story (a) -->
-	setupProjection(0,scope.xy,5,5,1) projectUV(0)  # setup texture coords for tiles of 2m x 2m
-	setupProjection(2,scope.xy,'1,'1) projectUV(2)
-	t (-xNeg, 0, -zNeg)
-	s (scope.sx + xNeg + xPos, '1, scope.sz + zNeg + zPos )
-	Story3(a)
-	
-Story3(a) -->
-	comp(f) {
-	  top    : Roof |
-	   bottom : color("#999999") X |
-	   all : Story4(a)	
-	}
-
-Story4(a) -->
-	case a == 1:
-		Groundfloor
-	case a == 2:
-		Floor(1,1,1)
-	case a == 3:
-		Upper(3,2,3)
-	else:
-		Wall Cornice
-
-Groundfloor --> Floor(-1,-1,-2)    
-
-
 # ----------------------------------------
 # Extrusion and facade dispatcher
 # ----------------------------------------
 
 @StartRule
-Footprint --> 
-	InsideSkin
+Footprint -->
 	extrude(BuildingHeight) Solid
 	
 Solid -->
@@ -367,21 +318,6 @@ RoofPlane -->
 	RoofTexture
 	alignScopeToGeometry(yUp,0,0)
 	Pipes
-	
-RoofPlaneParts -->
-	case geometry.area > 200	  : RoofPlanePartLarge
-	case geometry.isRectangular(1): RoofPlanePartRectangular
-	else						  : RoofPlanePartOther
-
-RoofPlanePartLarge -->
-	split(x){ ~1: NIL | ~2: split(y){ ~1.2: NIL | ~1: RoofAccess } | ~1: NIL }
-		
-RoofPlanePartRectangular -->
-	s(8.2,2.5,'0.3) center(xyz)
-	Ventilation
-	
-RoofPlanePartOther -->
-	NIL
 
 RoofTexture -->
 	setupProjection(0,scope.xy,20,15) projectUV(0)
@@ -412,24 +348,6 @@ Pipe(scaleX) -->
 	i("primitives/cylinder.hor.obj") 
 	setupProjection(0,scope.xz,'1,'20,0,'8) projectUV(0) PipeMaterial
 	
-PipeHolders(diameter,h) -->
-	case scope.sx < 4: NIL else: 
-	split(x){ ~3: NIL 
-				| { 0.3: PipeHolder(diameter,h) | 4: NIL }* 
-				| 0.3: PipeHolder(diameter,h) | ~3: NIL }
-	
-PipeHolder(diameter,h) -->
-	case h > 0:
-		PipeHolderTop(diameter)
-		s('1,h-diameter*0.2,diameter*1.4) center(z) t(0,-h,0)
-		i("builtin:cube") PipeMaterial
-	else:
-		PipeHolderTop(diameter)
-
-PipeHolderTop(diameter) --> 
-	s('1,diameter*1.4,diameter*1.4) center(xyz)
-	i("primitives/cylinder.half.obj") PipeMaterial
-	
 PipeEdges -->
 	extrude(0.7)
 	comp(e){ vertical: s('1,0.6,2.9) center(yz) t(0,0,-0.13) 
@@ -437,35 +355,6 @@ PipeEdges -->
 
 PipeMaterial -->	
 	texture("facade/misc/dirtmap.jpg")	# pipes are white i.e. only some dirt on it
-
-
-
-# ----------------------------------------
-# Ventilation
-# ----------------------------------------
-
-Ventilation -->
-	envelope(world.up,0.6,0.45,45,0.45,45,0.45,45) 
-	[ setupProjection(0,scope.xy,'1,'1) projectUV(0) color("#cccccc") PipeMaterial ]
-	split(x){ ~scope.sy/2: VerticalPipes | { ~scope.sy: VerticalPipes }* | ~scope.sy/2: NIL }
-	t(0,0,0.6)
-	split(x){ ~scope.sy: Ventilator }*
-	
-VerticalPipes -->
-	comp(f){ right: t(0,0,-0.1) Pipe(0.2,0,1.5) }
-	
-Ventilator -->
-	case scope.sx > scope.sy: Ventilator(scope.sy*0.8)
-	else					: Ventilator(scope.sx*0.8)
-	
-Ventilator(size) -->
-	s(size,size,0.15) center(xy)
-	rotateScope(0,90,0)
-	i("primitives/cylinder.hor.obj")
-	setupProjection(0,scope.yz,'1,'1) projectUV(0)
-	texture("roof/ventilator.jpg")
-
-
 
 # ----------------------------------------
 # Roof Access
@@ -490,44 +379,3 @@ RoofDoor -->
 	tileUV(0,'1.85*8,'1.1)
 	texture("facade/misc/groundFloorTiles_2048x256.jpg")
 	RoofDoor.
-
-	
-	
-# ----------------------------------------	
-# Inside Skin (for 3D Printing)
-# ----------------------------------------
-
-const thickness = 1.3
-
-InsideSkin -->
-	case Mode != "3DPrint":
-		NIL
-	else:
-		[ offset(-thickness-thickness*0.7,border) comp(f){ all: BottomSkin }  ]
-		offset(-thickness,inside)
-		[ offset(-thickness*0.7,inside) extrude(6) comp(f){ side: Skin } ]
-		t(0,6,0) 
-		[ offset(-thickness*0.7,border) Skin. ]
-		extrude(BuildingHeight-thickness-6) comp(f){ bottom: NIL | all: Skin }
-
-Skin -->
-	reverseNormals Wall	
-	
-BottomSkin -->
-	case scope.sx>30 || (scope.sx<20 && scope.sx>15): 
-		split(x){ CornerWallWidth : Skin 
-				| TileWidth   : SkinTile(0.6) 
-				| {~TileWidth : SkinTile(0.6) }* 
-				| TileWidth   : SkinTile(1.2) 
-				| {~TileWidth : SkinTile(0.6) }* 
-				| TileWidth   : SkinTile(0.6)  
-				| CornerWallWidth : Skin }
-	else: 
-		Skin
-	
-SkinTile(d) -->
-	split(x){  (TileWidth-FrontWindowWidth)/2: Skin | ~1: split(y){d:NIL|~1:Skin} |  (TileWidth-FrontWindowWidth)/2: Skin }	
-	
-	
-		
-	

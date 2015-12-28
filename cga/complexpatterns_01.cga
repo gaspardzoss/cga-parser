@@ -235,14 +235,3 @@ HBar --> s('1,barDiameter,barDiameter) t(0,0,-barDiameter) i(cyl_h) color(white)
 Bracing --> 
 	s(barDiameter,'1,0.15) center(x) i("builtin:cube")					
 	split(y){ 0.01 : Wall | ~1 : t(0,0,0.15) VBar | 0.01 : Wall }		//top and bottom mountings, and a vertical bar in the middle
-
-
-
-
-
-@Description("A Variation in Red")
-style Red_Color_Theme
-attr brightblue = "#FF8080"
-attr darkblue = "#D20000"
-attr grey = "#ECCACA"
-attr red = "#361B1B"

@@ -65,10 +65,10 @@ LedgeBase --> split(y){floorH-0.2:Floor | ~0.2:Ledge}
 
 Ledge --> extrude(0.25) Ledge2
 
-Ledge2 --> comp(f){ front: WallTex 
-		   | back : WallTex 
-		   | left : WallTex 		# instead of using "side" as selector, we use "left" and ..
-		   | right: WallTex 		# .. "right" so that we can differentiate later (needed for the cornice)
+Ledge2 --> comp(f){ front: Wall 
+		   | back : Wall 
+		   | left : Wall 		# instead of using "side" as selector, we use "left" and ..
+		   | right: Wall 		# .. "right" so that we can differentiate later (needed for the cornice)
 		   | top  : Wall }
 
 # ----------------------------------------
