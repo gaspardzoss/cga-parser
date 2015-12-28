@@ -27,6 +27,8 @@ class AST(object):
         return ret
     def __str__(self):
         return self.print_tree(0)
+    def __repr__(self):
+        return self.__str__()
 
 class Token(object):
     def __init__(self, type, value=None):
@@ -41,6 +43,8 @@ class Token(object):
         if self.value != None:
             ret += '(' + self.value + ')'
         return ret
+    def __repr__(self):
+        return self.__str__()
 
 # Lexer	
 class Scanner(GenericScanner):
@@ -95,7 +99,6 @@ class Scanner(GenericScanner):
 
     def t_string(self, s):
         r'"[^"]*"'
-        print "su: " + s
         self.rv.append(Token(type='string', value=s))
 
 class SubScanner(Scanner):
@@ -334,6 +337,9 @@ class CGAParser(GenericParser):
         ' inst ::= split_tok ( name ) sub_split '
         return AST(type='split', value=args[2].value, children=[args[4]])
     def p_inst_4(self, args):
+        ' inst ::= split_tok ( name , param_list ) sub_split '
+        return AST(type='split', value=args[2].value, children=[AST(type='paramters', children=args[4]), args[6]])
+    def p_inst_5(self, args):
         ' inst ::= comp_tok ( name ) { comp_list } '
         return AST(type='comp_split', value=args[2].value, children=args[5])
 
@@ -656,11 +662,16 @@ class NestedSplit(object):
             ret += '*'
         return ret
 class SubdivSplit(object):
-    def __init__(self, direction, nested_split):
+    def __init__(self, direction, params, nested_split):
         self.direction = direction
+        self.params = params
         self.nested_split = nested_split
     def __str__(self):
-        return "split(" + self.direction + ") " + str(self.nested_split)
+        ret = "split(" + self.direction
+        if self.params:
+            ret += ", " + ', '.join(map(lambda x: str(x), self.params))
+        ret += ") " + str(self.nested_split)
+        return ret
 class ComponentSplit(object):
     def __init__(self, type, splits):
         self.type = type
@@ -790,7 +801,11 @@ class GrammarBuilder(GenericASTTraversal):
             node.char = Symbol(node.value, params)
 
     def n_split(self, node):
-        node.char = SubdivSplit(node.value, node.children[0].split)
+        if len(node.children) == 2:
+            params = map(lambda x: x.expr, node.children[0].children)
+            node.char = SubdivSplit(node.value, params, node.children[1].split)
+        else:
+            node.char = SubdivSplit(node.value, None, node.children[0].split)
     def n_comp_split(self, node):
         node.char = ComponentSplit(node.value, map(lambda x: x.split, node.children))
     def n_comp(self, node):

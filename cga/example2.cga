@@ -1,0 +1,4 @@
+
+ex_split1 --> split(x, "asdf", 1+5){ 5: A. }
+ex_split2 --> split(y){ 5: A. }
+
