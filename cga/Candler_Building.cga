@@ -355,27 +355,3 @@ PipeEdges -->
 
 PipeMaterial -->	
 	texture("facade/misc/dirtmap.jpg")	# pipes are white i.e. only some dirt on it
-
-# ----------------------------------------
-# Roof Access
-# ----------------------------------------
-
-RoofAccess -->
-	extrude(2.3)
-	comp(f){ front: RoofAccessFront | side: WallWithoutUVs(1) | bottom: WallWithoutUVs(1) | top:
-		offset(-0.4)
-		comp(f){ border: WallWithoutUVs(5) 
-		   	   | inside: [ extrude(-0.1) comp(f){ side: reverseNormals WallWithoutUVs(5) } ] 
-		   			 	 t(0,0,-0.1) RoofTexture }
-	}
-	
-RoofAccessFront -->
-	setupProjection(0,scope.xy,5,5,1) projectUV(0)  # setup texture coords for tiles of 2m x 2m
-	setupProjection(2,scope.xy,'1,'1) projectUV(2)  # setup texture coords in uv-set 2 (dirtmap in CityEngine)
-	split(x){ ~1: Wall | 0.9: split(y){ 0.1: Wall | 1.9: RoofDoor | ~1: Wall } | ~5: Wall }
-	
-RoofDoor -->
-	WindowOpening(0.15) t(0,0,-0.15)
-	tileUV(0,'1.85*8,'1.1)
-	texture("facade/misc/groundFloorTiles_2048x256.jpg")
-	RoofDoor.

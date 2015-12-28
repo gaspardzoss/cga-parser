@@ -17,11 +17,11 @@ tokens = scanner.tokenize(input)
 
 parser = CGAParser()
 ast =  parser.parse(tokens)
-print ast
+#print ast
 
 builder = GrammarBuilder(ast)
 grammar = builder.grammar
-print grammar
+#print grammar
 
 graph_builder = StructureGraphBuilder(grammar)
 #print graph_builder.graph
