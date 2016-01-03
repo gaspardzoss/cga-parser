@@ -548,9 +548,9 @@ class CaseExpr(Expr):
         self.default = default
     def __str__(self):
         ret = ""
-        for (cond, expr) in zip(conditions, exprs):
-            ret += "case " + str(expr) + " : " + str(succ) + '\n'
-        ret += "else : " + str(default)
+        for (cond, expr) in zip(self.conditions, self.exprs):
+            ret += "case " + str(expr) + " : " + str(self.succ) + '\n'
+        ret += "else : " + str(self.default)
         return ret
 class ProbExpr(Expr):
     def __init__(self, probabilities, exprs, default):
@@ -559,9 +559,9 @@ class ProbExpr(Expr):
         self.default = default
     def __str__(self):
         ret = ""
-        for (prob, expr) in zip(probabilities, exprs):
+        for (prob, expr) in zip(self.probabilities, self.exprs):
             ret += ("%.2f" % prob * 100) + "% : " + str(expr) + '\n'
-        ret += "else : " + str(default)
+        ret += "else : " + str(self.default)
         return ret
 class Parameter(Expr):
     def __init__(self, expr, modifier=''):
@@ -851,35 +851,38 @@ class GrammarBuilder(GenericASTTraversal):
 
     def default(self, node):
         pass
-
-class StructuralAggregationNode(object):
-    def __init__(self,name,predecessor = None, attrs = None, successors = None):
-        self.predecessor = predecessor
-        self.name = name
-        if attrs is None:
-            attrs = {}
-        self.attrs = attrs
-        if successors is None:
-            successors = {}
-        self.successors = successors
         
 class Node(object):
-    def __init__(self,name,predecessors = None, successors = None, attrs = None):
+    def __init__(self,name,attrs = None):
         self.name = name
-        if predecessors is None:
-            predecessors = {}
-        self.predecessors = predecessors
-        if successors is None:
-            successors = {}
-        self.successors = successors
-        if attrs is None:
+        self.predecessors = {}
+        self.successors = {}
+        if not attrs:
             attrs = {}
         self.attrs = attrs
         self.rep_trans_suc = False
-        self.pred_comps = {}
-        self.pred_splits = {}
-        self.suc_comps = {}
-        self.suc_splits = {}
+        
+        self.pred_cons = {
+            "comp":{},
+            "split":{},
+            "case":{},
+            "prob":{}        
+        }
+        self.pred_cons["comp"] = {}
+        self.pred_cons["split"] = {}
+        self.pred_cons["case"] = {}
+        self.pred_cons["prob"] = {}
+        
+        self.suc_cons = {
+            "comp":{},
+            "split":{},
+            "case":{},
+            "prob":{}        
+        }
+        self.suc_cons["comp"] = {}
+        self.suc_cons["split"] = {}
+        self.suc_cons["case"] = {}
+        self.suc_cons["prob"] = {}
     
 
 class StructureGraphBuilder(object):
@@ -906,93 +909,129 @@ class StructureGraphBuilder(object):
                     else:
                         old[key] = new[key]
 
-        def handle_suc_nested_split(lhs, nsplit, comp_cons, split_cons, pred_info = None):
+        def handle_suc_nested_split(lhs, nsplit, cons, pred_info = None):
             sucs = {}
             if not pred_info:
                 pred_info = {'split':None, 'comp':None}
             for split in nsplit.splits:
+                copied_pred_info = {
+                    'source':pred_info['source'],
+                    'split':pred_info['split'],
+                    'comp':pred_info['comp'],
+                    'prob':pred_info['prob'],
+                    'case':pred_info['case']
+                }
                 t = type(split).__name__
                 if t == "Split":
-                    merge_dicts(sucs,handle_suc(lhs, split.successor, comp_cons, split_cons, pred_info))
+                    merge_dicts(sucs,handle_suc(lhs, split.successor, cons, copied_pred_info))
                 elif t == "NestedSplit":
                     repeat_split = split.repeated #Bool is auto-promoted to int for addition
-                    merge_dicts(sucs,handle_suc_nested_split(lhs, split, comp_cons, split_cons, pred_info),repeat_split)
+                    merge_dicts(sucs,handle_suc_nested_split(lhs, split, cons, copied_pred_info),repeat_split)
                 else:
                     print "ERROR: Nested split handling failed!"
-            return sucs;
+            return sucs
 
-        def handle_suc(lhs, successors, comp_cons, split_cons, pred_info = None):
+        def handle_suc(lhs, successors, cons, pred_info = None):
             sucs = {}
             if not pred_info:
-                pred_info = {'source':None,'split':None, 'comp':None}
+                pred_info = {'source':None,'split':None, 'comp':None,'prob':None,'case':None}
             for suc in successors:
                 t = type(suc).__name__
                 if t == "Symbol":
-                    if pred_info['split']:
-                        if pred_info['source'] in split_cons:
-                            if not suc.name in split_cons[pred_info['source']]:
-                                split_cons[pred_info['source']][suc.name] = pred_info['split']
-                        else:
-                            split_cons[pred_info['source']] = {}
-                            split_cons[pred_info['source']][suc.name] = pred_info['split']
-                    if pred_info['comp']:
-                        if pred_info['source'] in comp_cons:
-                            if not suc.name in comp_cons[pred_info['source']]:
-                                comp_cons[pred_info['source']][suc.name] = pred_info['comp']
-                        else:
-                            comp_cons[pred_info['source']] = {}
-                            comp_cons[pred_info['source']][suc.name] = pred_info['comp']
+                    for name,con_type in cons.iteritems():#update special connections
+                        if pred_info[name]:
+                            if pred_info['source'] in con_type:
+                                if not suc.name in con_type[pred_info['source']]:
+                                    con_type[pred_info['source']][suc.name] = pred_info[name]
+                            else:
+                                con_type[pred_info['source']] = {}
+                                con_type[pred_info['source']][suc.name] = pred_info[name]
                     self.graph[lhs].add(suc.name)
-                    sucs[suc.name] = 1;
-            
-            pred_info = {'source':None,'split':None, 'comp':None}
+                    sucs[suc.name] = 1
             for suc in successors:
                 t = type(suc).__name__
                 if t == "Instruction":
                     pass
                 elif t == "ConditionalRule":
-                    index = 1;
+                    index = 1
                     for suc2 in suc.successors:
-                        self.graph[lhs+str(index)] = set()
-                        self.graph[lhs].add(lhs+str(index))
-                        self.count[lhs+str(index)] = {}
-                        sucs[lhs+str(index)] = 1
-                        if pred_info['source'] == lhs:
-                            pred_info['source'] = lhs+str(index)
-                        merge_dicts(self.count[lhs+str(index)],handle_suc(lhs+str(index), suc2, comp_cons, split_cons, pred_info))
+                        lhs_new = lhs+"_"+str(index)
+                        self.graph[lhs_new] = set()
+                        self.graph[lhs].add(lhs_new)
+                        self.count[lhs_new] = {}
+                        sucs[lhs_new] = 1
+                        pred_info['source'] = lhs_new
+                        if lhs in cons['case']:
+                            cons['case'][lhs][lhs_new] = "c"
+                        else:
+                            cons['case'][lhs] = {}
+                            cons['case'][lhs][lhs_new] = "c"
+                        merge_dicts(self.count[lhs_new],handle_suc(lhs_new, suc2, cons))
                         index += 1
-                    self.graph[lhs+"0"] = set()
-                    self.graph[lhs].add(lhs+"0")
-                    self.count[lhs+"0"] = {}
-                    sucs[lhs+"0"] = 1
-                    if pred_info['source'] == lhs:
-                        pred_info['source'] = lhs+"0"
-                    merge_dicts(self.count[lhs+"0"],handle_suc(lhs+"0", suc.default, comp_cons, split_cons, pred_info))
-                elif t == "StochasticRule":
-                    index = 1;
-                    for suc2 in suc.successors:
-                        self.graph[lhs+str(index)] = set()
-                        self.graph[lhs].add(lhs+str(index))
-                        self.count[lhs+str(index)] = {}
-                        sucs[lhs+str(index)] = 1
-                        if pred_info['source'] == lhs:
-                            pred_info['source'] = lhs+str(index)
-                        merge_dicts(self.count[lhs+str(index)],handle_suc(lhs, suc2, comp_cons, split_cons, pred_info))
-                        index += 1
-                    self.graph[lhs+"0"] = set()
-                    self.graph[lhs].add(lhs+"0")
-                    self.count[lhs+"0"] = {}
-                    sucs[lhs+"0"] = 1
-                    if pred_info['source'] == lhs:
-                        pred_info['source'] = lhs+"0"
-                    merge_dicts(self.count[lhs+"0"],handle_suc(lhs, suc.default, comp_cons, split_cons, pred_info))
-                elif t == "SubdivSplit":
-                    if pred_info['split']:
-                        pred_info['split'] += str(suc.direction)
+                        
+                    #default case
+                    lhs_new = lhs+"_0"
+                    self.graph[lhs_new] = set()
+                    self.graph[lhs].add(lhs_new)
+                    self.count[lhs_new] = {}
+                    sucs[lhs_new] = 1
+                    pred_info['source'] = lhs_new
+                    if lhs in cons['case']:
+                        cons['case'][lhs][lhs_new] = "c"
                     else:
-                        pred_info['source'] = str(lhs)
+                        cons['case'][lhs] = {}
+                        cons['case'][lhs][lhs_new] = "c"
+                    merge_dicts(self.count[lhs_new],handle_suc(lhs_new, suc.default, cons))
+                elif t == "StochasticRule":
+                    index = 1
+                    for suc2 in suc.successors:
+                        lhs_new = lhs+"_"+str(index)
+                        self.graph[lhs_new] = set()
+                        self.graph[lhs].add(lhs_new)
+                        self.count[lhs_new] = {}
+                        sucs[lhs_new] = 1
+                        pred_info['source'] = lhs_new
+                        if lhs in cons['prob']:
+                            cons['prob'][lhs][lhs_new] = "p"
+                        else:
+                            cons['prob'][lhs] = {}
+                            cons['prob'][lhs][lhs_new] = "p"
+                        merge_dicts(self.count[lhs_new],handle_suc(lhs_new, suc2, cons))
+                        index += 1
+                        
+                    #default case
+                    lhs_new = lhs+"_0"
+                    self.graph[lhs_new] = set()
+                    self.graph[lhs].add(lhs_new)
+                    self.count[lhs_new] = {}
+                    sucs[lhs_new] = 1
+                    pred_info['source'] = lhs_new
+                    if lhs in cons['prob']:
+                        cons['prob'][lhs][lhs_new] = "p"
+                    else:
+                        cons['prob'][lhs] = {}
+                        cons['prob'][lhs][lhs_new] = "p"
+                    merge_dicts(self.count[lhs_new],handle_suc(lhs_new, suc.default, cons))
+                elif t == "SubdivSplit":
+                    if pred_info['split']:    
+                        lhs_new = lhs+str(suc.direction)
+                        if pred_info['source'] in cons['split']:
+                            cons['split'][pred_info['source']][lhs_new] = pred_info['split']
+                        else:
+                            cons['split'][pred_info['source']] = {}
+                            cons['split'][pred_info['source']][lhs_new] = pred_info['split']
+                        pred_info['split'] = str(suc.direction)                        
+                    else:
                         pred_info['split'] = str(suc.direction)
-                    merge_dicts(sucs,handle_suc_nested_split(lhs, suc.nested_split, comp_cons, split_cons, pred_info),suc.nested_split.repeated)
+                        lhs_new = lhs+"_"+str(suc.direction)
+                        
+                    pred_info['source'] = str(lhs_new)
+                    
+                    self.graph[lhs_new] = set()
+                    self.graph[lhs].add(lhs_new)
+                    self.count[lhs_new] = {}
+                    sucs[lhs_new] = 1
+                    merge_dicts(self.count[lhs_new],handle_suc_nested_split(lhs_new, suc.nested_split, cons, pred_info),suc.nested_split.repeated)
                 elif t == "ComponentSplit":
                     if pred_info['comp']:
                         pred_info['comp'] += str(suc.type)
@@ -1000,25 +1039,25 @@ class StructureGraphBuilder(object):
                         pred_info['source'] = str(lhs)
                         pred_info['comp'] = str(suc.type)
                     for comp in suc.splits:
-                        merge_dicts(sucs,handle_suc(lhs, comp.successor, comp_cons, split_cons, pred_info))
+                        merge_dicts(sucs,handle_suc(lhs, comp.successor, cons, pred_info))
                 else:
                     if t != "Symbol":
                         print "ERROR: Unsupported char type (" + t + ") encountered!"
-            return sucs;
+            return sucs
 
-        def handle_param_nested_split(lhs, nsplit):
+        def handle_param_nested_split(lhs, nsplit, split_dirs):
             attrs = {}
             for s in nsplit.splits:
                 t = type(s).__name__
                 if t == "Split":
                     merge_dicts(attrs,get_params_from_expr(s.expr))
-                    merge_dicts(attrs,handle_params(lhs, s.successor))
+                    merge_dicts(attrs,handle_params(lhs, s.successor, split_dirs))
                 elif t == "NestedSplit":
                     repeat_split = s.repeated #Bool is auto-promoted to int for addition
-                    merge_dicts(attrs,handle_param_nested_split(lhs, s),repeat_split)
+                    merge_dicts(attrs,handle_param_nested_split(lhs, s, split_dirs),repeat_split)
                 else:
                     print "ERROR: Nested split handling failed in parameter extraction!" 
-            return attrs;
+            return attrs
 
         def get_params_from_expr(expr):
             attrs = {}
@@ -1041,9 +1080,9 @@ class StructureGraphBuilder(object):
             else:
                 if t != "NoneType":
                     print "ERROR: Unsupported char type (" + t + ") encountered when parsing expression!"
-            return attrs;
+            return attrs
 
-        def handle_params(lhs, successors):
+        def handle_params(lhs, successors, split_dirs = None):
             attrs = {}
             for suc in successors:
                 t = type(suc).__name__
@@ -1054,39 +1093,50 @@ class StructureGraphBuilder(object):
                         for param in suc.params:
                             merge_dicts(attrs,get_params_from_expr(param))
                 elif t == "ConditionalRule":
-                    index = 1;
+                    index = 1
                     for cond in suc.conditions:
                         merge_dicts(attrs,get_params_from_expr(cond))
                     for suc2 in suc.successors:
-                        self.params[lhs+str(index)] = {}
-                        merge_dicts(self.params[lhs+str(index)],handle_params(lhs+str(index), suc2))
+                        self.params[lhs+"_"+str(index)] = {}
+                        merge_dicts(self.params[lhs+"_"+str(index)],handle_params(lhs+"_"+str(index), suc2))
                         index += 1
-                    self.params[lhs+"0"] = {}
-                    merge_dicts(self.params[lhs+"0"],handle_params(lhs+"0", suc.default))
+                    self.params[lhs+"_"+"0"] = {}
+                    merge_dicts(self.params[lhs+"_"+"0"],handle_params(lhs+"_"+"0", suc.default))
                 elif t == "StochasticRule":  
-                    index = 1; 
+                    index = 1 
                     for prob in suc.probabilities:
                         merge_dicts(attrs,get_params_from_expr(prob))
                     for suc2 in suc.successors:
-                        self.params[lhs+str(index)] = {}
-                        merge_dicts(self.params[lhs+str(index)],handle_params(lhs+str(index), suc2))
+                        self.params[lhs+"_"+str(index)] = {}
+                        merge_dicts(self.params[lhs+"_"+str(index)],handle_params(lhs+"_"+str(index), suc2))
                         index += 1
-                    self.params[lhs+"0"] = {}
-                    merge_dicts(self.params[lhs+"0"],handle_params(lhs+"0", suc.default))                   
+                    self.params[lhs+"_"+"0"] = {}
+                    merge_dicts(self.params[lhs+"_"+"0"],handle_params(lhs+"_"+"0", suc.default))                   
                 elif t == "SubdivSplit":
-                    attrs["split_dir"] = str(suc.direction)
-                    merge_dicts(attrs,handle_param_nested_split(lhs, suc.nested_split),suc.nested_split.repeated)
+                    if split_dirs:
+                        split_dirs += str(suc.direction)
+                        new_lhs = lhs + str(suc.direction)
+                    else:
+                        split_dirs = str(suc.direction)
+                        new_lhs = lhs+"_"+split_dirs
+                    self.params[new_lhs] = {}
+                    merge_dicts(self.params[new_lhs],handle_param_nested_split(new_lhs, suc.nested_split, split_dirs),suc.nested_split.repeated)
                 elif t == "ComponentSplit":
-                    attrs["comp_type"] = str(suc.type)
                     for comp in suc.splits:
                         merge_dicts(attrs,handle_params(lhs, comp.successor))
                 else:
                     print "ERROR: Parameter extraction encountered unsupported char type (" + t + ") encountered!"  
-            return attrs;
+            return attrs
 
         self.params = {}
         self.count = {}
         self.attrs = {}
+        self.connections = {
+            'case': {},
+            'comp': {},
+            'split':{},
+            'prob': {}
+        }
         self.comp_connections = {}
         self.split_connections = {}
         for attr in self.grammar.attrs:
@@ -1096,32 +1146,19 @@ class StructureGraphBuilder(object):
             if lhs in self.graph:
                 print "ERROR: encountered a duplicate of production rule '" + lhs +"'!"
             self.graph[lhs] = set()
+            self.count[lhs] = handle_suc(lhs, rule.successor,self.connections)
             self.params[lhs] = handle_params(lhs, rule.successor)
-            self.count[lhs] = handle_suc(lhs, rule.successor,self.comp_connections,self.split_connections)
-        #print str(self.comp_connections)
-        #print str(self.split_connections)
-
-#class StructuralAggregationNode(object):
-#    def __init__(self,name,predecessor = None, attrs = {}, successors = {}):
-#        self.predecessor = predecessor
-#        self.name = name
-#        self.attrs = attrs
-#        self.successors = successors
 
     def write_slightly_reduced_dot(self, file_name):      
         
         def merge_dicts(old,new,repeat = False):
             if repeat:
                 for key in new:
-                    if key == "comp_type" or key == "split_dir":
-                        continue
                     old[key] = -1
             else:
                 for key in new:
                     if key in old:    
-                        if key == "comp_type" or key == "split_dir":
-                            old[key] += "," + new[key]
-                        elif old[key] > 0 and new[key] > 0:
+                        if old[key] > 0 and new[key] > 0:
                             old[key] += new[key]
                         elif new[key] < 0:
                             old[key] = new[key]
@@ -1160,23 +1197,25 @@ class StructureGraphBuilder(object):
                         valid_delete = False
                 if valid_delete:
                     for dest_name,visited in dests.iteritems():
-                        del reduced_node_dict[dest_name].predecessors[orig]   
+                        if orig in reduced_node_dict[dest_name].predecessors:
+                            del reduced_node_dict[dest_name].predecessors[orig]   
             del_set = set()
             for orig_tuple in lazy_del_set:
                 del_set.add(orig_tuple[1])    
             for orig in del_set:
-                if not reduced_node_dict[orig].predecessors:
-                    del reduced_node_dict[orig]
+                if orig in reduced_node_dict:
+                    if not reduced_node_dict[orig].predecessors:
+                        del reduced_node_dict[orig]
         
-        def get_structure_graph(s_rule,pred,mapping_suc,mapping_pred,params,counts,attrs,comp_con,split_con):
+        def get_structure_graph(mapping_suc,mapping_pred,s_rule):
             
-            def add_overewrite_attributes(node,rule,params,attrs):
-                if rule in params:
-                    for attr in params[rule]:
-                        if attr in attrs or attr == "comp_type" or attr == "split_dir":
-                            node.attrs[attr] = params[rule][attr]
+            def add_overewrite_attributes(node,rule):
+                if rule in self.params:
+                    for attr in self.params[rule]:
+                        if attr in self.attrs:
+                            node.attrs[attr] = self.params[rule][attr]
             
-            def get_children(s_rule,pred,mapping_suc,mapping_pred,params,counts,attrs,node_dict,comp_con,split_con):
+            def get_children(s_rule,pred,mapping_suc,mapping_pred,node_dict):
                 children = []
                 for rule in mapping_suc[s_rule]:#for each successor
                     if rule == s_rule:
@@ -1185,42 +1224,44 @@ class StructureGraphBuilder(object):
                         if rule in node_dict:
                             child = node_dict[rule]
                         else:
-                            child = get_children(rule,s_rule,mapping_suc,mapping_pred,params,counts,attrs,node_dict,comp_con,split_con)
+                            child = get_children(rule,s_rule,mapping_suc,mapping_pred,node_dict)
                     else:#visit leaves
                         if rule in node_dict:
                             child = node_dict[rule]
                         else:
                             child = Node(rule)
-                            add_overewrite_attributes(child,rule,params,attrs)
+                            add_overewrite_attributes(child,rule)
                             node_dict[rule] = child
                     if child:
                         children.append(child)
                 node = Node(s_rule)
-                add_overewrite_attributes(node,s_rule,params,attrs)
-                for c in children:
+                add_overewrite_attributes(node,s_rule)
+                
+                cons = self.connections
+                for c in children:     
+                    #establish transitively who has repeating children
+                    if self.count[s_rule][c.name] < 0 or c.rep_trans_suc:
+                        node.rep_trans_suc = True
+                        
                     #update node
-                    node.successors[c.name] = counts[node.name][c.name]
-                    if node.name in comp_con and c.name in comp_con[node.name]:
-                        node.suc_comps[c.name] = comp_con[node.name][c.name]
-                    if node.name in split_con and c.name in split_con[node.name]:
-                        node.suc_splits[c.name] = split_con[node.name][c.name]
+                    node.successors[c.name] = self.count[node.name][c.name]
+                    for con_name,n_cons in node.suc_cons.iteritems():
+                        if node.name in cons[con_name] and c.name in cons[con_name][node.name] and len(cons[con_name][node.name][c.name]) > 0 :
+                            n_cons[c.name] = cons[con_name][node.name][c.name]
                     
                     #update child
-                    c.predecessors[node.name] = counts[node.name][c.name]   
-                    if node.name in comp_con and c.name in comp_con[node.name]:
-                        c.pred_comps[node.name] = comp_con[node.name][c.name]
-                    if node.name in split_con and c.name in split_con[node.name]:
-                        c.pred_splits[node.name] = split_con[node.name][c.name]
+                    c.predecessors[node.name] = self.count[node.name][c.name]
+                    for con_name,c_cons in c.pred_cons.iteritems(): 
+                        if node.name in cons[con_name] and c.name in cons[con_name][node.name] and len(cons[con_name][node.name][c.name]) > 0 :
+                            c_cons[node.name] = cons[con_name][node.name][c.name]
                 node_dict[s_rule] = node
                 return node
 
-            #test children for importance
             sg_node_dict = {}
-            get_children(s_rule,pred,mapping_suc,mapping_pred,params,counts,attrs,sg_node_dict,comp_con,split_con)
+            get_children(s_rule,None,mapping_suc,mapping_pred,sg_node_dict)
             return sg_node_dict            
-            #reduce_splits(safely_reduced,s_rule,pred,mapping_suc,mapping_pred,params,counts,attrs,node_dict)
        
-        def transfer_childs_successors(receptor, origin,  lazy_del_set, node_dict, red_node_dict):
+        def transfer_childs_successors(receptor, origin,  lazy_del_set, node_dict, red_node_dict, branched = False):
             rn = receptor.name
             on = origin.name
             for sn,count in origin.successors.iteritems():
@@ -1242,20 +1283,30 @@ class StructureGraphBuilder(object):
                         red_node_dict[sn].predecessors[rn] = node_dict[sn].predecessors[on]
                     else:
                         red_node_dict[sn].predecessors[rn] = red_node_dict[sn].predecessors[on]
-                           
-                #establish split relations to predecessor
-                if sn in node_dict[sn].pred_splits:
-                    if sn in red_node_dict[sn].pred_splits:
-                        red_node_dict[sn].pred_splits[rn] += node_dict[sn].pred_splits[on]
-                    else:
-                        red_node_dict[sn].pred_splits[rn] = node_dict[sn].pred_splits[on]
+                        
                 
-                #establish comp relations to predecessor
-                if sn in node_dict[sn].pred_comps:
-                    if sn in red_node_dict[sn].pred_comps:
-                        red_node_dict[sn].pred_comps[rn] += node_dict[sn].pred_comps[on]
-                    else:
-                        red_node_dict[sn].pred_comps[rn] = node_dict[sn].pred_comps[on]
+                #establish special relations to child's predecessor
+                for con_name,cons in red_node_dict[sn].pred_cons.iteritems():
+                    info = ""
+                    if on in node_dict[sn].pred_cons[con_name]:
+                        info += node_dict[sn].pred_cons[con_name][on]      
+                    if rn in node_dict[on].pred_cons[con_name]:
+                        info += node_dict[on].pred_cons[con_name][rn]
+                    
+                    #relation is potentially not in the old_node, but in the new one   
+                    if len(info) == 0:
+                        if sn in red_node_dict and on in cons:
+                            info += cons[on]      
+                        if on in red_node_dict and rn in red_node_dict[on].pred_cons[con_name]:
+                            info += red_node_dict[on].pred_cons[con_name][rn]
+                            
+                    if len(info)>0:
+                        if rn in cons and not branched:
+                            cons[rn] += info
+                        else:
+                            cons[rn] = info
+                    elif rn in cons:
+                        del cons[rn]
                 
                 #establish successors
                 if sn in receptor.successors:
@@ -1265,125 +1316,190 @@ class StructureGraphBuilder(object):
                         receptor.successors[sn] = origin.successors[sn]
                 else:
                     receptor.successors[sn] = origin.successors[sn]
-            
-                #establish split relations to successors
-                if sn in origin.suc_splits:
-                    if sn in receptor.suc_splits:
-                        receptor.suc_splits[sn] += origin.suc_splits[sn]
-                    else:
-                        receptor.suc_splits[sn] = origin.suc_splits[sn]
-                
-                #establish comp relations to successors
-                if sn in origin.suc_comps:
-                    if sn in receptor.suc_comps:
-                        receptor.suc_comps[sn] += origin.suc_comps[sn]
-                    else:
-                        receptor.suc_comps[sn] = origin.suc_comps[sn]
+                    
+                #establish special relations to successor
+                for con_name,cons in receptor.suc_cons.iteritems():
+                    info = ""
+                    if on in node_dict[rn].suc_cons[con_name]:
+                        info += node_dict[rn].suc_cons[con_name][on]    
+                    if sn in node_dict[on].suc_cons[con_name]:
+                        info += node_dict[on].suc_cons[con_name][sn]
+                    
+                    #relation is potentially not in the old_node, but in the new one
+                    if len(info) == 0: 
+                        if rn in red_node_dict and on in red_node_dict[rn].suc_cons[con_name]:
+                            info += red_node_dict[rn].suc_cons[con_name][on]    
+                        if on in red_node_dict and sn in red_node_dict[on].suc_cons[con_name]:
+                            info += red_node_dict[on].suc_cons[con_name][sn]
+                    
+                    if len(info) > 0:
+                        if sn in cons and not branched:
+                            cons[sn] += info
+                        else:
+                            cons[sn] = info
                     
                 #lazily delete old connection
                 lazy_del_set.add((sn,on,))  
         
-        def copy_successors(node_dict, copy, origin, child):
+        def copy_successors(red_node_dict, node_dict, copy, origin, child, merge_comps = False):
             cpn = copy.name
             chn = child.name
             
-            if cpn == "Facade" or chn == "Facade":
-                a=1
-            
-            #establish predecessors
-            if copy.name in child.predecessors:
-                if child.predecessors[cpn] > 0  and node_dict[chn].predecessors[cpn] > 0:
-                    child.predecessors[cpn] += node_dict[chn].predecessors[cpn]
-                elif node_dict[chn].predecessors[cpn] < 0:
+            #establish child's predecessors
+            if cpn in node_dict[chn].predecessors:
+                if copy.name in child.predecessors:
+                    if child.predecessors[cpn] > 0  and node_dict[chn].predecessors[cpn] > 0:
+                        child.predecessors[cpn] += node_dict[chn].predecessors[cpn]
+                    elif node_dict[chn].predecessors[cpn] < 0:
+                        child.predecessors[cpn] = node_dict[chn].predecessors[cpn]
+                else:
                     child.predecessors[cpn] = node_dict[chn].predecessors[cpn]
-            else:
-                child.predecessors[cpn] = node_dict[chn].predecessors[cpn]
-            
-            #establish split relations to predecessor
-            if cpn in node_dict[chn].pred_splits:
-                if cpn in child.pred_splits:
-                    child.pred_splits[cpn] += node_dict[chn].pred_splits[cpn]
+            elif cpn in red_node_dict[chn].predecessors:
+                if copy.name in child.predecessors:
+                    if child.predecessors[cpn] > 0  and red_node_dict[chn].predecessors[cpn] > 0:
+                        child.predecessors[cpn] += red_node_dict[chn].predecessors[cpn]
+                    elif red_node_dict[chn].predecessors[cpn] < 0:
+                        child.predecessors[cpn] = red_node_dict[chn].predecessors[cpn]
                 else:
-                    child.pred_splits[cpn] = node_dict[chn].pred_splits[cpn]
-            
-            #establish comp relations to predecessor
-            if cpn in node_dict[chn].pred_comps:
-                if cpn in child.pred_comps:
-                    child.pred_comps[cpn] += node_dict[chn].pred_comps[cpn]
-                else:
-                    child.pred_comps[cpn] = node_dict[chn].pred_comps[cpn]
+                    child.predecessors[cpn] = red_node_dict[chn].predecessors[cpn]
+                    
+            #establish child's special relations to predecessor
+            for con_name,cons in child.pred_cons.iteritems():
+                if cpn in node_dict[chn].pred_cons[con_name] and len(node_dict[chn].pred_cons[con_name][cpn]) > 0:
+                    if cpn in cons:
+                        cons[cpn] += node_dict[chn].pred_cons[con_name][cpn]
+                    else:
+                        cons[cpn] = node_dict[chn].pred_cons[con_name][cpn]
+                elif cpn in red_node_dict[chn].pred_cons[con_name] and len(red_node_dict[chn].pred_cons[con_name][cpn]) > 0:
+                    if cpn in cons:
+                        cons[cpn] += red_node_dict[chn].pred_cons[con_name][cpn]
+                    else:
+                        cons[cpn] = red_node_dict[chn].pred_cons[con_name][cpn]
                 
             #establish successors
-            if chn in copy.successors:
-                if copy.successors[chn] > 0 and origin.successors[chn] > 0:
-                    copy.successors[chn] += origin.successors[chn]
-                elif origin.successors[chn] < 0:
-                    copy.successors[chn] = origin.successors[chn]              
-            else:
-                copy.successors[chn] = origin.successors[chn]
-                
-            #establish split relations to successors
-            if chn in origin.suc_splits:
-                if chn in copy.suc_splits:
-                    copy.suc_splits[chn] += origin.suc_splits[chn]
+            if chn in node_dict[origin.name].successors:                
+                if chn in copy.successors:
+                    if copy.successors[chn] > 0 and node_dict[origin.name].successors[chn] > 0:
+                        copy.successors[chn] += node_dict[origin.name].successors[chn]
+                    elif origin.successors[chn] < 0:
+                        copy.successors[chn] = node_dict[origin.name].successors[chn]    
                 else:
-                    copy.suc_splits[chn] = origin.suc_splits[chn]
+                    copy.successors[chn] = node_dict[origin.name].successors[chn]
+            elif chn in red_node_dict[origin.name].successors:                
+                if chn in copy.successors and not merge_comps:
+                    if copy.successors[chn] > 0 and red_node_dict[origin.name].successors[chn] > 0:
+                        copy.successors[chn] += red_node_dict[origin.name].successors[chn]
+                    elif chn in origin.successors and origin.successors[chn] < 0:
+                        copy.successors[chn] = red_node_dict[origin.name].successors[chn]   
+                else:
+                    copy.successors[chn] = red_node_dict[origin.name].successors[chn]
             
-            #establish comp relations to successors
-            if chn in origin.suc_comps:
-                if chn in copy.suc_comps:
-                    copy.suc_comps[chn] += origin.suc_comps[chn]
+            #establish special relations to successors
+            for con_name,cons in copy.suc_cons.iteritems():
+                if chn in node_dict[origin.name].suc_cons[con_name] and node_dict[origin.name].suc_cons[con_name][chn] > 0:
+                    if chn in cons:
+                        cons[chn] += node_dict[origin.name].suc_cons[con_name][chn]
+                    else:
+                        cons[chn] = node_dict[origin.name].suc_cons[con_name][chn]
+
+        def aggregate_redundant_nodes(node_dict,starting_rule):  
+
+            def test_mergeable(node_dict,old_node,new_child):
+                cname = new_child.name
+                if (    cname in old_node.suc_cons["comp"] or
+                        cname in old_node.suc_cons["split"] or
+                        cname in old_node.suc_cons["prob"] or
+                        cname in old_node.suc_cons["case"]):
+                    return False
                 else:
-                    copy.suc_comps[chn] = origin.suc_comps[chn]
-                                    
-        def aggregate_redundant_nodes(node_dict,starting_rule):        
+                    if len(node_dict[new_child.name].predecessors) == 1:
+                        return True
+                    else:
+                        return False
+                
+            def gather_finite_attrs(node_dict, attrs, root_name, node_name):
+                node = node_dict[node_name]
+                new_attrs = {}
+                for suc_name in node.successors:
+                    gather_finite_attrs(node_dict, new_attrs, node_name, suc_name)
+                
+                if node.attrs:
+                    for attr in node.attrs:
+                        if attr in new_attrs:
+                            new_attrs[attr] += node.attrs[attr]
+                        else:
+                            new_attrs[attr] = node.attrs[attr]
+                            
+                for attr in new_attrs:
+                    if attr in attrs:
+                        attrs[attr] += new_attrs[attr] * node.predecessors[root_name]
+                    else:
+                        attrs[attr] = new_attrs[attr] * node.predecessors[root_name]
+                
+                return attrs
+                            
+            
             def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set):
                 if s_rule in reduced_node_dict:
                     return reduced_node_dict[s_rule]
                 old_node = node_dict[s_rule]
                 
-                if not old_node.successors and not old_node.attrs:#remove empty leaves
+                rep_pred = False
+                for pred_name, count in old_node.predecessors.iteritems():
+                    if count < 0:
+                        rep_pred = True
+                        break
+                
+                if not old_node.successors and not old_node.attrs and not rep_pred:#remove empty leaves
                     return None
                 elif not old_node.successors and old_node.attrs:#keep leaves with attrs
                     new_leave = Node(old_node.name, attrs = old_node.attrs)
                     reduced_node_dict[new_leave.name] = new_leave
                     return new_leave
-
+                elif not old_node.successors and rep_pred:#structural nodes
+                    new_leave = Node(old_node.name, attrs = old_node.attrs)
+                    reduced_node_dict[new_leave.name] = new_leave
+                    return new_leave
+                    
+                new_node = Node(old_node.name, old_node.attrs)
+                
+                if old_node.name == "Floor_yxxy":
+                    a=1
+                
+                #gather children
                 children = []
                 for suc_name,count in old_node.successors.iteritems():#collect valid children
+                    #Gather attributes from finite children
+                    if not node_dict[suc_name].rep_trans_suc and node_dict[suc_name].predecessors[old_node.name]>0:
+                        old_child = node_dict[suc_name]
+                        min_mult = float("inf")
+                        for pred_name, count in old_child.predecessors.iteritems():
+                            min_mult = min(min_mult,count)
+                        if min_mult > 0:
+                            gather_finite_attrs(node_dict, new_node.attrs,new_node.name,suc_name)
+                            continue
                     suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
                     if suc:
                         children.append(suc)
-                        
-                if not children and not old_node.attrs:
+                if not children and not old_node.attrs and not rep_pred:
                     return None
-                new_node = Node(old_node.name)
-                valid_attr = False
-                for attr in old_node.attrs:
-                    if attr != "split_dir" and attr != "comp_type":
-                        valid_attr = True
-                        break
                 
-                if not valid_attr:#technically mergeable
-                    new_attrs = {}
-                    merge_dicts(new_attrs,old_node.attrs)
-                    for child in children:
-                        if old_node.successors[child.name] == 1:#check if children can be absorbed
-                            max_mult = -1
-                            min_mult = float("inf")
-                            for pred_name, count in node_dict[child.name].predecessors.iteritems():#check other parents children
-                                max_mult = max(max_mult,count)
-                                min_mult = min(min_mult,count)
-                            if max_mult == 1 and min_mult == 1:#merge child attribute
-                                merge_dicts(new_attrs,child.attrs)
-                                transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
-                                continue #do not add child
-                        copy_successors(node_dict, new_node, old_node, child)
-                    new_node.attrs = new_attrs
-                else:
-                    for child in children:
-                        copy_successors(node_dict, new_node, old_node, child)
-                    new_node.attrs = old_node.attrs
+                #update multiplicity of node
+                new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
+                for child in children:
+                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc 
+                
+                #process children
+                for child in children:
+                    mergeable = test_mergeable(node_dict,old_node,child)
+                    if mergeable:
+                        merge_dicts(new_node.attrs,child.attrs)
+                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                    else:
+                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
+                
+                if not new_node.attrs and not new_node.successors and not rep_pred:
+                    return None
                 reduced_node_dict[new_node.name] = new_node
                 return new_node
             
@@ -1392,225 +1508,245 @@ class StructureGraphBuilder(object):
             lazy_del_set = set()
             reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
             remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
+            return reduced_node_dict
             
-        def aggregate_single_attr_only_nodes(node_dict,starting_rule):            
-            def reduce_successors(reduced_node_dict, node_dict, s_rule, lazy_del_set):
-                if s_rule in reduced_node_dict:
-                    return reduced_node_dict[s_rule]
-                old_node = node_dict[s_rule]
-                
-                children = []
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name, lazy_del_set)
-                    children.append(suc)
-                    
-                new_node = Node(old_node.name)
-                merge_dicts(new_node.attrs,old_node.attrs)
-                for child in children:
-                    if old_node.successors[child.name] == 1 and not "split_dir" in child.attrs and not "comp_type" in child.attrs:
-                        #DELETING STUFF THAT SHOULD REMAIN BECAUSE OTHERS STILL REFERENCE IT!!!
-                        max_mult = -1
-                        min_mult = float("inf")
-                        for pred_name, count in node_dict[child.name].predecessors.iteritems():#check other parents children
-                            max_mult = max(max_mult,count)
-                            min_mult = min(min_mult,count)
-                        merge_dicts(new_node.attrs,child.attrs)
-                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
-                        continue #do not add child
-                    copy_successors(node_dict, new_node, old_node, child)
-                reduced_node_dict[new_node.name] = new_node
-                return new_node
-            
-            print "PHASE 4: Aggregate single attr only nodes"
-            reduced_node_dict = {}
-            lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
+        def aggregate_redundant_cases(node_dict,starting_rule):  
 
-        def aggregate_multiple_attr_only_nodes(node_dict,starting_rule):            
-            def reduce_successors(reduced_node_dict, node_dict, s_rule, lazy_del_set):
-                if s_rule in reduced_node_dict:
-                    return reduced_node_dict[s_rule]
-                old_node = node_dict[s_rule]
-                
-                children = []
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name, lazy_del_set)
-                    children.append(suc)
-                    
-                new_node = Node(old_node.name)
-                merge_dicts(new_node.attrs,old_node.attrs)
-                for child in children:
-                    if old_node.successors[child.name] >= 1 and not "split_dir" in child.attrs and not "comp_type" in child.attrs:
-                        merge_dicts(new_node.attrs,child.attrs)
-                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)     
-                        continue #do not add child
-                    copy_successors(node_dict, new_node, old_node, child)
-                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc  
-                reduced_node_dict[new_node.name] = new_node
-                return new_node
-            
-            print "PHASE 5: Aggregate single attr only nodes"
-            reduced_node_dict = {}
-            lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
-
-        def aggregate_single_split_nodes_hard(node_dict,starting_rule):
-            
-            def reduce_successors(reduced_node_dict, node_dict, s_rule, lazy_del_set):
-                if s_rule in reduced_node_dict:
-                    return reduced_node_dict[s_rule]
-                old_node = node_dict[s_rule]
-                
-                children = []
-                max_mult = -1
-                min_mult = float("inf")
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name, lazy_del_set)
-                    children.append(suc)
-                    max_mult = max(max_mult,count)
-                    min_mult = min(min_mult,count)
-                    
-                new_node = Node(old_node.name)
-                merge_dicts(new_node.attrs,old_node.attrs)
-                if min_mult <= 0 or not "split_dir" in old_node.attrs:
-                    new_node.rep_trans_suc = True
-                    for child in children:
-                        copy_successors(node_dict, new_node, old_node, child)                      
+            def test_mergeable(node_dict,old_node,new_child):
+                probs = old_node.suc_cons["prob"]
+                cases = old_node.suc_cons["case"]
+                if (    (len(probs) == 1 and new_child.name in probs and len (probs[new_child.name]) > 0) or
+                        (len(cases) == 1 and new_child.name in cases and len (cases[new_child.name]) > 0)):
+                    return True
+                elif (  len(probs) > 1 or
+                        len(cases) > 1): #check that all branches unit in a common successor (only to depth = 1)
+                    branch_sucs = {}
+                    branch_len = len(old_node.successors)
+                    for suc_name in old_node.successors:
+                        suc = node_dict[suc_name]
+                        for suc2_name in suc.successors:
+                            if suc2_name in branch_sucs:
+                                branch_sucs[suc2_name] += 1
+                            else:
+                                branch_sucs[suc2_name] = 1
+                    for key, val in branch_sucs.iteritems():
+                        if val != branch_len:
+                            return False
+                    return True
                 else:
-                    for child in children:
-                        if old_node.successors[child.name] > 0 and "split_dir" in child.attrs:
-                            merge_dicts(new_node.attrs,child.attrs)
+                    return False                            
+            
+            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set):
+                if s_rule in reduced_node_dict:
+                    return reduced_node_dict[s_rule]
+                old_node = node_dict[s_rule]
+                
+                new_node = Node(old_node.name, old_node.attrs)
+                
+                #gather children
+                children = []
+                for suc_name,count in old_node.successors.iteritems():#collect valid children
+                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
+                    if suc:
+                        children.append(suc)
+                
+                #update multiplicity of node
+                new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
+                for child in children:
+                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc 
+                    
+                #process children
+                for child in children:
+                    mergeable = test_mergeable(node_dict,old_node,child)
+                    if mergeable:
+                        merge_dicts(new_node.attrs,child.attrs)
+                        branched = True
+                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict,branched)
+                    else:
+                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
+                
+                reduced_node_dict[new_node.name] = new_node
+                return new_node
+            
+            print "PHASE 2: Aggregate redundant cases/probs"
+            reduced_node_dict = {}
+            lazy_del_set = set()
+            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
+            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
+            return reduced_node_dict
+            
+        def aggregate_redundant_comps(node_dict,starting_rule):  
+
+            def test_mergeable(node_dict,old_node,new_child):
+                probs = old_node.suc_cons["prob"]
+                cases = old_node.suc_cons["case"]
+                if (    (len(probs) == 1 and new_child.name in probs and len (probs[new_child.name]) > 0) or
+                        (len(cases) == 1 and new_child.name in cases and len (cases[new_child.name]) > 0)):
+                    return True
+                elif (  len(probs) > 1 or
+                        len(cases) > 1): #check that all branches unit in a common successor (only to depth = 1)
+                    branch_sucs = {}
+                    branch_len = len(old_node.successors)
+                    for suc_name in old_node.successors:
+                        suc = node_dict[suc_name]
+                        for suc2_name in suc.successors:
+                            if suc2_name in branch_sucs:
+                                branch_sucs[suc2_name] += 1
+                            else:
+                                branch_sucs[suc2_name] = 1
+                    for key, val in branch_sucs.iteritems():
+                        if val != branch_len:
+                            return False
+                    return True
+                else:
+                    return False      
+
+            def find_splits(reduced_node_dict, node_dict, s_rule):
+                old_node = node_dict[s_rule]
+                if len(old_node.suc_cons["split"]) > 0:
+                    return set([old_node.name])
+                split_nodes = set()
+                for suc_name,count in old_node.successors.iteritems():#collect valid children
+                    prev = find_splits(reduced_node_dict, node_dict, suc_name)
+                    split_nodes = split_nodes | prev
+                return split_nodes
+                
+            def gather_attrs_until_split(node_dict, split_nodes, attrs, root_name, node_name):
+                reduced = False
+                for split_node in split_nodes:
+                    if split_node == node_name:
+                        reduced = True
+                        break
+                
+                node = node_dict[node_name]
+                new_attrs = {}
+                if not reduced:
+                    for suc_name in node.successors:
+                        gather_attrs_until_split(node_dict, split_nodes, new_attrs, node_name, suc_name)
+                
+                    if node.attrs:
+                        for attr in node.attrs:
+                            if attr in new_attrs:
+                                new_attrs[attr] += node.attrs[attr]
+                            else:
+                                new_attrs[attr] = node.attrs[attr]
                             
-                            transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)    
-                            for suc_name,count in child.successors.iteritems():
-                                new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[suc_name].rep_trans_suc
-                            continue #do not add child
-                        copy_successors(node_dict, new_node, old_node, child)
-                        new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc  
-                reduced_node_dict[new_node.name] = new_node
-                return new_node
-            
-            print "PHASE 2: Aggregate single split nodes"
-            reduced_node_dict = {}
-            lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
-            
-        
-        def aggregate_single_split_nodes_soft(node_dict,starting_rule):
-            
-            def reduce_successors(reduced_node_dict, node_dict, s_rule, lazy_del_set):
-                if s_rule in reduced_node_dict:
-                    return reduced_node_dict[s_rule]
-                old_node = node_dict[s_rule]
-
-                children = []
-                max_mult = -1
-                min_mult = float("inf")
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name, lazy_del_set)
-                    children.append(suc)
-                    max_mult = max(max_mult,count)
-                    min_mult = min(min_mult,count)
-                    
-                new_node = Node(old_node.name)
-                merge_dicts(new_node.attrs,old_node.attrs)
+                for attr in new_attrs:
+                    if attr in attrs:
+                        attrs[attr] += new_attrs[attr] * node.predecessors[root_name]
+                    else:
+                        attrs[attr] = new_attrs[attr] * node.predecessors[root_name]
                 
-                for child in children:
-                    if old_node.successors[child.name] > 0 and "split_dir" in child.attrs:
-                        merge_dicts(new_node.attrs,child.attrs)
+                return attrs
+                
+            def gather_nodes_until_split(reduced_node_dict, node_dict, s_rule, split_nodes):
+                
+                old_node = node_dict[s_rule]
+                for suc_name in old_node.successors:
+                    if suc_name in split_nodes:
+                        return None
                         
-                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)    
-                        for suc_name,count in child.successors.iteritems():
-                            new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[suc_name].rep_trans_suc
-                        continue #do not add child
-                    copy_successors(node_dict, new_node, old_node, child)
-                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc  
+                new_node = Node(old_node.name, old_node.attrs)
+                
+                for suc_name in old_node.successors:
+                    sup = gather_nodes_until_split(reduced_node_dict, node_dict, suc_name, split_nodes)
+                    if sup:
+                        child = reduced_node_dict[suc_name]
+                    else:
+                        child = node_dict[suc_name]
+                    transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                
                 reduced_node_dict[new_node.name] = new_node
                 return new_node
-            
-            reduced_node_dict = {}
-            lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
 
-        def aggregate_multiple_split_nodes(node_dict,starting_rule):
+            def reduce_until_splits(reduced_node_dict, node_dict, s_rule, split_nodes, lazy_del_set):
+                
+                old_node = node_dict[s_rule]
+                new_node = gather_nodes_until_split(reduced_node_dict, node_dict, s_rule, split_nodes)
+                if not new_node:
+                    return None
+                    
+                for suc_name,val in old_node.successors.iteritems():
+                    gather_attrs_until_split(node_dict, split_nodes, new_node.attrs, s_rule, suc_name)
+                           
+                if s_rule == "Footprint":
+                    a= 1
+                children = []
+                for split_node in split_nodes:
+                    children.append(node_dict[split_node])
+                                    
+                new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
+                merge_comps = True
+                for child in children:
+                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc
+                    
+                    copy_successors(reduced_node_dict, node_dict, new_node, old_node, child, merge_comps)
+                    child.pred_cons["comp"][new_node.name] = "f"
+                    new_node.suc_cons["comp"][child.name] = "f"
+                    if new_node.name in child.pred_cons["case"]:
+                        del child.pred_cons["case"][new_node.name]
+                    if child.name in new_node.suc_cons["case"]:
+                        del new_node.suc_cons["case"][child.name]
+                    if new_node.name in child.pred_cons["prob"]:
+                        del child.pred_cons["prob"][new_node.name]
+                    if child.name in new_node.suc_cons["prob"]:
+                        del new_node.suc_cons["prob"][child.name]
+                
+                reduced_node_dict[new_node.name] = new_node
+                return new_node
+      
             
-            def reduce_successors(reduced_node_dict, node_dict, s_rule, lazy_del_set):
+            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set):
                 if s_rule in reduced_node_dict:
                     return reduced_node_dict[s_rule]
                 old_node = node_dict[s_rule]
                 
-                children = []
-                max_mult = -1
-                min_mult = float("inf")
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name, lazy_del_set)
-                    children.append(suc)
-                    max_mult = max(max_mult,count)
-                    min_mult = min(min_mult,count)
-                    
-                new_node = Node(old_node.name)
-                merge_dicts(new_node.attrs,old_node.attrs)
-                if min_mult <= 0 or not "split_dir" in old_node.attrs:
-                    new_node.rep_trans_suc = True
-                    for child in children:
-                        copy_successors(node_dict, new_node, old_node, child)                      
-                else:
-                    for child in children:
-                        if old_node.successors[child.name] > 1 and "split_dir" in child.attrs:
-                            merge_dicts(new_node.attrs,child.attrs)
-                            transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict) 
-                            continue #do not add child
-                        copy_successors(node_dict, new_node, old_node, child)
-                        new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc  
-                reduced_node_dict[new_node.name] = new_node
-                return new_node
-            
-            print "PHASE 6: Aggregate multiple split nodes"
-            reduced_node_dict = {}
-            lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
-
-        def aggregate_comp_nodes(node_dict,starting_rule):
-            
-            def reduce_successors(reduced_node_dict, node_dict, s_rule, lazy_del_set):
-                if s_rule in reduced_node_dict:
-                    return reduced_node_dict[s_rule]
-                node = node_dict[s_rule]
+                new_node = Node(old_node.name, old_node.attrs)
                 
+                
+                should_reduce = True
                 children = []
-                for suc_name,count in node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name, lazy_del_set)
-                    children.append(suc)
+                if len(old_node.suc_cons["comp"]) > 0 and old_node.rep_trans_suc:
+                    #reduce comp if possible
+                
+                    #gather children until split 
+                    split_nodes = find_splits(reduced_node_dict, node_dict, s_rule)
+                    for suc_name,node in old_node.successors.iteritems():
+                        if suc_name in split_nodes:
+                            should_reduce = False
+                    for suc_name in split_nodes:#collect valid children
+                        suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
+                        if suc:
+                            children.append(suc)
+                    if should_reduce:
+                        reduce_until_splits(reduced_node_dict, node_dict, s_rule,split_nodes,lazy_del_set)
+                else:
+                    should_reduce = False
+                    #gather children
+                    for suc_name,count in old_node.successors.iteritems():#collect valid children
+                        suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
+                        if suc:
+                            children.append(suc)
+                 
                     
-                new_node = Node(node.name)
-                merge_dicts(new_node.attrs,node.attrs)
+                #update multiplicity of node
+                new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
                 for child in children:
-                    if "comp_type" in child.attrs and not child.rep_trans_suc and node.successors[child.name] > 0:
-                        merge_dicts(new_node.attrs,child.attrs)
-                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict) 
-                        continue #do not add child
-                    copy_successors(node_dict, new_node, node, child)
                     new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc  
-                reduced_node_dict[new_node.name] = new_node
+                    copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
+                if s_rule == "Lot":
+                    a=1
+                if not should_reduce:
+                    reduced_node_dict[new_node.name] = new_node
                 return new_node
             
-            print "PHASE 3: Aggregate comp nodes"
+            print "PHASE 3: Aggregate redundant comps"
             reduced_node_dict = {}
             lazy_del_set = set()
             reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
             remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict;
+            return reduced_node_dict
+          
             
         #obtain predecessors and successors
         mapping_to = {}
@@ -1632,31 +1768,21 @@ class StructureGraphBuilder(object):
         for rule, deps in self.graph.iteritems():
             if rule not in visited1:
                 if rule in mapping_from:
-                    mark_visited(rule,mapping_from,visited1,starting_rules);
+                    mark_visited(rule,mapping_from,visited1,starting_rules)
                 else:
                     starting_rules.append(rule)
                     visited1.append(rule)
         
         structure_graphs = {}
         rsg1 = {}  
-        rsg2 = {}
-        rsg3 = {}
-        rsg4 = {}
-        rsg5 = {}
-        rsg6 = {}
-        rsg7 = {}
-        rsg_list = [rsg1,rsg2]#,rsg3,rsg4,rsg5,rsg6]#,rsg7]
+        rsg2 = {}  
+        rsg3 = {}  
+        rsg_list = [rsg1,rsg2,rsg3]#,rsg4,rsg5,rsg6,rsg7]
         for starting_rule in starting_rules:
-            structure_graphs[starting_rule] = get_structure_graph(starting_rule,None,mapping_to,mapping_from,self.params,self.count,self.attrs,self.comp_connections,self.split_connections)
-          
+            structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
             rsg1[starting_rule] = aggregate_redundant_nodes(structure_graphs[starting_rule],starting_rule)
-        
-            rsg2[starting_rule] = aggregate_single_split_nodes_hard(rsg1[starting_rule],starting_rule) 
-            #rsg3[starting_rule] = aggregate_comp_nodes(rsg2[starting_rule],starting_rule)   
-            #rsg4[starting_rule] = aggregate_single_attr_only_nodes(rsg3[starting_rule],starting_rule) 
-            #rsg5[starting_rule] = aggregate_multiple_attr_only_nodes(rsg4[starting_rule],starting_rule)
-            #rsg6[starting_rule] = aggregate_multiple_split_nodes(rsg5[starting_rule],starting_rule) 
-            #rsg7[starting_rule] = aggregate_single_split_nodes_soft(rsg6[starting_rule],starting_rule) 
+            rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
+            rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
         
         index = 1
         for rsg in rsg_list:      
@@ -1686,7 +1812,7 @@ class StructureGraphBuilder(object):
                                 labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(rule_node.attrs[attr])+'</FONT>'
                             else:
                                 labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
-                    labels +='>];\n'
+                    labels +='>]\n'
                     for d in deps:
                         output += '    ' + node_name(rule) + ' -> ' + node_name(d)
                         output += '[label=<'
@@ -1694,11 +1820,10 @@ class StructureGraphBuilder(object):
                             output += str(rule_node.successors[d])+ ''
                         else:
                             output += 'n'
-                        if d in rule_node.suc_comps:
-                            output += '\n<BR />'+rule_node.suc_comps[d]
-                        if d in rule_node.suc_splits:
-                            output += '\n<BR />'+rule_node.suc_splits[d]
-                        output += '>];\n'
+                        for con_name, cons in rule_node.suc_cons.iteritems():
+                            if d in cons and len(cons[d]) > 0:
+                                output += '; '+cons[d]
+                        output += '>]\n'
                                 
                 output += labels
             output += "}"
@@ -1723,7 +1848,7 @@ class StructureGraphBuilder(object):
                         labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self.params[rule][attr])+'</FONT>'
                     else:
                         labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
-            labels +='>];\n'
+            labels +='>]\n'
             for d in deps:
                 output += '    ' + node_name(rule) + ' -> ' + node_name(d)
                 output += '[label=<'
@@ -1734,11 +1859,10 @@ class StructureGraphBuilder(object):
                         output += 'n'
                 else:
                     output += '1'
-                if rule in self.comp_connections and d in self.comp_connections[rule]:
-                    output += '\n<BR />'+self.comp_connections[rule][d]
-                if rule in self.split_connections and d in self.split_connections[rule]:
-                    output += '\n<BR />'+self.split_connections[rule][d]
-                output += '>];\n'
+                for con_name, cons in self.connections.iteritems():
+                    if rule in cons and d in cons[rule]:
+                        output += '; '+cons[rule][d]
+                output += '>]\n'
                     
         output += labels
         output += "}"

@@ -1,80 +1,95 @@
 digraph {
-    Door -> DoorWall[label=<1>];
-    Door -> DoorFrame[label=<1>];
-    Door -> DoorPlane[label=<1>];
-    GroundFloorWindows -> Wall[label=<1
-<BR />y>];
-    GroundFloorWindows -> Window[label=<n
-<BR />x>];
-    Floor -> Wall[label=<1
-<BR />x>];
-    Floor -> Pillar[label=<2
-<BR />x>];
-    Floor -> Window[label=<n
-<BR />y>];
-    Floor -> Ledge[label=<1
-<BR />y>];
-    Window -> WindowFrame[label=<1>];
-    Window -> Wall[label=<1
-<BR />y>];
-    Window -> WindowGlass[label=<1>];
-    FrontFacade -> GroundFloorDoor[label=<1
-<BR />y>];
-    FrontFacade -> Floor[label=<n
-<BR />y>];
-    DoorWall -> Wall[label=<1
-<BR />y>];
-    GroundFloorDoor -> Wall[label=<1
-<BR />y>];
-    GroundFloorDoor -> Base[label=<1
-<BR />y>];
-    GroundFloorDoor -> Door[label=<1
-<BR />x>];
-    GroundFloorDoor -> Ledge[label=<1
-<BR />y>];
-    GroundFloorDoor -> GroundFloorWindows[label=<2
-<BR />x>];
-    DoorPlane -> Wall[label=<3
-<BR />x>];
-    DoorPlane -> DoorTextureArea[label=<1
-<BR />y>];
-    Door [label=<"Door">];
-    DoorFrame [label=<"DoorFrame"
-<BR /><FONT POINT-SIZE="10">brick_color:1</FONT>>];
-    GroundFloorWindows [label=<"GroundFloorWindows"
-<BR /><FONT POINT-SIZE="10">window_height:1</FONT>
-<BR /><FONT POINT-SIZE="10">wallMargin_width:n</FONT>
+    DoorWall_y -> Wall[label=<1; y>]
+    GroundFloorWindows_y -> Wall[label=<2; y>]
+    GroundFloorWindows_y -> GroundFloorWindows_yx[label=<1; y>]
+    GroundFloorWindows -> GroundFloorWindows_y[label=<1>]
+    Floor -> Floor_y[label=<1>]
+    FrontFacade_y -> GroundFloorDoor[label=<1; y>]
+    FrontFacade_y -> Floor[label=<n; y>]
+    Window_y -> Wall[label=<1; y>]
+    DoorPlane -> DoorPlane_x[label=<1>]
+    Door -> DoorWall[label=<1>]
+    Door -> DoorFrame[label=<1>]
+    Door -> DoorPlane[label=<1>]
+    FrontFacade -> FrontFacade_y[label=<1>]
+    Floor_y -> Ledge[label=<1; y>]
+    Floor_y -> Floor_yx[label=<1; y>]
+    GroundFloorDoor -> GroundFloorDoor_y[label=<1>]
+    Floor_yxx -> Wall[label=<n; x>]
+    Floor_yxx -> Pillar[label=<n; x>]
+    Floor_yxx -> Floor_yxxy[label=<n; x>]
+    GroundFloorDoor_yx -> Door[label=<1; x>]
+    GroundFloorDoor_yx -> GroundFloorWindows[label=<2; x>]
+    DoorWall -> DoorWall_y[label=<1>]
+    GroundFloorWindows_yx -> Wall[label=<n; x>]
+    GroundFloorWindows_yx -> Window[label=<n; x>]
+    DoorPlane_x -> Wall[label=<2; x>]
+    DoorPlane_x -> DoorPlane_xy[label=<1; x>]
+    Floor_yxxy -> Wall[label=<1; y>]
+    Floor_yxxy -> Window[label=<1; y>]
+    Floor_yx -> Wall[label=<2; x>]
+    Floor_yx -> Pillar[label=<3; x>]
+    Floor_yx -> Floor_yxx[label=<1; x>]
+    GroundFloorDoor_y -> Wall[label=<1; y>]
+    GroundFloorDoor_y -> GroundFloorDoor_yx[label=<1; y>]
+    GroundFloorDoor_y -> Base[label=<1; y>]
+    GroundFloorDoor_y -> Ledge[label=<1; y>]
+    Window -> WindowFrame[label=<1>]
+    Window -> Window_y[label=<1>]
+    Window -> WindowGlass[label=<1>]
+    DoorPlane_xy -> Wall[label=<1; y>]
+    DoorPlane_xy -> DoorTextureArea[label=<1; y>]
+    DoorWall_y [label=<"DoorWall_y">]
+    GroundFloorWindows_y [label=<"GroundFloorWindows_y"
 <BR /><FONT POINT-SIZE="10">lowerGround_height:1</FONT>
-<BR /><FONT POINT-SIZE="10">window_width:n</FONT>>];
-    Floor [label=<"Floor"
-<BR /><FONT POINT-SIZE="10">pillar_width:2</FONT>
-<BR /><FONT POINT-SIZE="10">ledge_height:1</FONT>
-<BR /><FONT POINT-SIZE="10">window_height:n</FONT>
-<BR /><FONT POINT-SIZE="10">window_width:n</FONT>
-<BR /><FONT POINT-SIZE="10">wallMargin_width:2</FONT>>];
-    Wall [label=<"Wall">];
-    Pillar [label=<"Pillar"
-<BR /><FONT POINT-SIZE="10">pillar_color:1</FONT>>];
-    WindowGlass [label=<"WindowGlass">];
-    Window [label=<"Window">];
-    Base [label=<"Base"
-<BR /><FONT POINT-SIZE="10">base_color:1</FONT>>];
-    FrontFacade [label=<"FrontFacade"
+<BR /><FONT POINT-SIZE="10">window_height:1</FONT>>]
+    GroundFloorWindows [label=<"GroundFloorWindows">]
+    Floor [label=<"Floor">]
+    FrontFacade_y [label=<"FrontFacade_y"
 <BR /><FONT POINT-SIZE="10">floor_height:n</FONT>
-<BR /><FONT POINT-SIZE="10">groundFloor_height:1</FONT>
-<BR /><FONT POINT-SIZE="10">wall_color:1</FONT>>];
+<BR /><FONT POINT-SIZE="10">groundFloor_height:1</FONT>>]
     Ledge [label=<"Ledge"
-<BR /><FONT POINT-SIZE="10">ledge_color:1</FONT>>];
-    WindowFrame [label=<"WindowFrame"
-<BR /><FONT POINT-SIZE="10">brick_color:1</FONT>>];
-    DoorWall [label=<"DoorWall">];
-    GroundFloorDoor [label=<"GroundFloorDoor"
-<BR /><FONT POINT-SIZE="10">door_height:1</FONT>
-<BR /><FONT POINT-SIZE="10">ledge_height:1</FONT>
-<BR /><FONT POINT-SIZE="10">door_width:1</FONT>
-<BR /><FONT POINT-SIZE="10">brick_color:1</FONT>
-<BR /><FONT POINT-SIZE="10">base_height:1</FONT>>];
-    DoorTextureArea [label=<"DoorTextureArea">];
+<BR /><FONT POINT-SIZE="10">ledge_color:1</FONT>>]
+    Window_y [label=<"Window_y">]
     DoorPlane [label=<"DoorPlane"
-<BR /><FONT POINT-SIZE="10">wall_color:1</FONT>>];
+<BR /><FONT POINT-SIZE="10">wall_color:1</FONT>>]
+    Door [label=<"Door">]
+    Base [label=<"Base"
+<BR /><FONT POINT-SIZE="10">base_color:1</FONT>>]
+    FrontFacade [label=<"FrontFacade"
+<BR /><FONT POINT-SIZE="10">wall_color:1</FONT>>]
+    Floor_y [label=<"Floor_y"
+<BR /><FONT POINT-SIZE="10">ledge_height:1</FONT>>]
+    GroundFloorDoor [label=<"GroundFloorDoor"
+<BR /><FONT POINT-SIZE="10">brick_color:1</FONT>>]
+    Floor_yxx [label=<"Floor_yxx"
+<BR /><FONT POINT-SIZE="10">pillar_width:n</FONT>
+<BR /><FONT POINT-SIZE="10">window_width:n</FONT>>]
+    GroundFloorDoor_yx [label=<"GroundFloorDoor_yx"
+<BR /><FONT POINT-SIZE="10">door_width:1</FONT>>]
+    DoorWall [label=<"DoorWall">]
+    DoorFrame [label=<"DoorFrame"
+<BR /><FONT POINT-SIZE="10">brick_color:1</FONT>>]
+    Pillar [label=<"Pillar"
+<BR /><FONT POINT-SIZE="10">pillar_color:1</FONT>>]
+    WindowGlass [label=<"WindowGlass">]
+    WindowFrame [label=<"WindowFrame"
+<BR /><FONT POINT-SIZE="10">brick_color:1</FONT>>]
+    GroundFloorWindows_yx [label=<"GroundFloorWindows_yx"
+<BR /><FONT POINT-SIZE="10">wallMargin_width:n</FONT>
+<BR /><FONT POINT-SIZE="10">window_width:n</FONT>>]
+    DoorPlane_x [label=<"DoorPlane_x">]
+    Floor_yxxy [label=<"Floor_yxxy"
+<BR /><FONT POINT-SIZE="10">window_height:1</FONT>>]
+    Floor_yx [label=<"Floor_yx"
+<BR /><FONT POINT-SIZE="10">wallMargin_width:2</FONT>
+<BR /><FONT POINT-SIZE="10">pillar_width:3</FONT>>]
+    GroundFloorDoor_y [label=<"GroundFloorDoor_y"
+<BR /><FONT POINT-SIZE="10">base_height:1</FONT>
+<BR /><FONT POINT-SIZE="10">door_height:1</FONT>
+<BR /><FONT POINT-SIZE="10">ledge_height:1</FONT>>]
+    Window [label=<"Window">]
+    Wall [label=<"Wall">]
+    DoorPlane_xy [label=<"DoorPlane_xy">]
+    DoorTextureArea [label=<"DoorTextureArea">]
 }

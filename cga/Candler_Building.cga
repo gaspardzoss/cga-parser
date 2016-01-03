@@ -7,65 +7,28 @@
 
 version "2014.0"
 
-
-
-@handle(shape=Solid, reference=origin, align=right, occlusion=false )
-@order(3) @range(28,150)
 attr BuildingHeight 	= 25
-
-@Order(2) @Range("Visualization","3DPrint") @Description("Generates a watertight model with less detail - suited for most 3D printers.")
 attr Mode = "Visualization"
-
-@Group("Facade",3) 
-@Order(1) @Range(2.5,5)
 attr FloorHeight 		= 3.5
-
-@Order(2) @Range(3,6)
-@handle(shape=Groundfloor, align=left )
 attr GroundfloorHeight 	= 4.3
-@Order(3) @Range(1.5,5)
-
 attr TileWidth 		 	= 3.55
-@Order(4) @Range(0.5,3)
-
-@handle(shape=Cornice, axis=z, align=right, repeat=none )
 attr CorniceOverhang 	= 1.2
-
-@Group("Windows",4)
-@Order(1) @Range(1.3,5)
-@handle(shape=Subtile, axis=y, treeKeyShape=auto, reference=origin, align=bottom )
 attr WindowHeight		= 2.05
-@Order(2) @Range(1,4)
-
 attr FrontWindowWidth	= 2.15
-@Order(3) @Range(0.5,2)
 attr RearWindowWidth	= 1.2
-@Order(4) @Range(0,0.7)
 attr SillSize			= 0.26
-
-@Group("Wall",5)
-@Order(1) @Range(0,2)
 attr CornerWallWidth	= 1
-@Order(2) @File("jpg","png","tif")
 attr WallTexture		= "facade/walls/bricks.jpg"
-@Order(3)
-@handle(type=color, reference=radial, shape=Lot2, align=lefttop, axis=y, repeat=none )
 attr ColorizeWall		= "#FCEFE2"
-
-@Hidden
 attr onStreet		= true
 
 const dividerW	= 0.25
 const sillH		= SillSize #case FloorHeight>WindowHeight+SillSize: (FloorHeight-WindowHeight)*0.66 else: SillSize
 
-@Handle (type=Pull, shape=Story3^1, treeKeyShape=Story^1, axis=x-, drawMode=Sphere)
 attr xNeg = 0
-@Handle (type=Pull, shape=Story3^1, treeKeyShape=Story^1, axis=x, drawMode=Sphere)
 attr xPos = 0
 
-@Handle (type=Pull, shape=Story3^1, treeKeyShape=Story^1, axis=z-, drawMode=Sphere)
 attr zNeg = 0
-@Handle (type=Pull, shape=Story3^1, treeKeyShape=Story^1, axis=z, drawMode=Sphere)
 attr zPos = 0
 
 # ----------------------------------------
@@ -77,14 +40,11 @@ Footprint -->
 	extrude(BuildingHeight) Solid
 	
 Solid -->
-	comp(f){ front: HHandle FrontFacade 
-		   | back : HHandle RearFacade 
-		   | left : HHandle SideFacade 		# instead of using "side" as selector, we use "left" and ..
-		   | right: HHandle SideFacade 		# .. "right" so that we can differentiate later (needed for the cornice)
+	comp(f){ front: FrontFacade 
+		   | back : RearFacade 
+		   | left : SideFacade 		# instead of using "side" as selector, we use "left" and ..
+		   | right: SideFacade 		# .. "right" so that we can differentiate later (needed for the cornice)
 		   | top  : Roof }	
-
-
-HHandle --> NIL
 
 FrontFacade -->
 	set(onStreet,true) 	# is facing street (i.e. has shops, ledges and cornice)
@@ -126,11 +86,9 @@ Base -->
 
 Mid(mid1,mid2) -->
 	split(y){ ~FloorHeight : Floor(mid1, mid2, mid2) }*  # split middle part into floors
-	Ledge(0.6) 
 	
 Upper(u1,u2,u3) -->
-	split(y){~FloorHeight : Floor(u1, u2, u3) }* 
-	Ledge(0.4)
+	split(y){~FloorHeight : Floor(u1, u2, u3) }*
 		
 Top -->
 	Wall Cornice
@@ -261,13 +219,6 @@ WallWithoutUVs(scaleDirtmap) -->
 # ----------------------------------------
 # Ledges
 # ----------------------------------------
-
-Ledge(size) -->
-	case onStreet:
-		s('1,size,size) t(0,sillH-size+0.02,0) SubLedge("facade/ledges/ledgeSmall.obj")
-	else:
-		NIL
-
 SubLedge(elem) -->
 	case comp.sel == "left" :
 		s('1.2,'1,'1) LedgeElement(elem)  # enlarge to right side so that it can be trimmed
