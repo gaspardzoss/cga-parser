@@ -857,9 +857,12 @@ class Node(object):
         self.name = name
         self.predecessors = {}
         self.successors = {}
+        self.incoming_edges = {}
+        self.outgoing_edges = {}
         if not attrs:
             attrs = {}
         self.attrs = attrs
+        self.attrs2 = {}
         self.rep_trans_suc = False
         
         self.pred_cons = {
@@ -884,6 +887,8 @@ class Node(object):
         self.suc_cons["case"] = {}
         self.suc_cons["prob"] = {}
         
+        
+        
     def __repr__(self):
         ret = self.name + "\n"
         for attr,count in self.attrs.iteritems():
@@ -903,12 +908,73 @@ class Node(object):
                     attrs += str(cons[pred_name]) + ", "
             ret += "  " +  pred_name + "(" + attrs + ") <- " + str(count) + "\n"
             
+        ret = self.name + "\n"
+        for attr,count in self.attrs.iteritems():
+            ret += "    "+ attr + ": " + str(count) + "\n"
+        ret += "Outgoing:\n"
+        for suc_name, edge in self.outgoing_edges.iteritems():
+            ret += str(edge)
+        ret += "Incoming:\n"
+        for suc_name, edge in self.incoming_edges.iteritems():
+            ret += str(edge)
+        ret += "---\n"
         return ret
         
+class Edge(object):
+    def __init__(self,orig,dest,multiplicity,types=None,attrs=None):
+        self.origin = orig
+        self.destination = dest
+        self.multiplicity = multiplicity
+        if not types:
+            types = {
+                "comp":"",
+                "split":"",
+                "case":"",
+                "prob":""        
+            }
+        self.types = dict(types)
+        if not attrs:
+            attrs = {}
+        self.attrs = dict(attrs)
         
+    def __repr__(self):
+        ret = self.origin.name + " -> " + self.destination.name
+        ret += "(" + str(self.multiplicity)
+        for t,t_info in self.types.iteritems():
+            if len(t_info) > 0:
+                ret += ", " + str(t_info)
+        ret += ")\n"
+        for attr_name, value in self.attrs.iteritems():
+            ret += "\t" + attr_name + ": " + str(value) + "\n"
+        return ret
+        
+    def clone(self):
+        return Edge(self.origin,self.destination,self.multiplicity,self.types,self.attrs)
+        
+    def join(self,other):
+        """
+        Merges 2 edges which are assumed to be in sequence. Self.origin and self other.destination
+        form the new edge.
+        """
+        new_mult = self.multiplicity
+        if new_mult > 0 and other.multiplicity > 0:
+            new_mult *= other.multiplicity
+        elif other.multiplicity < 0:
+            new_mult = other.multiplicity
+            
+        new_edge = Edge(self.origin,other.destination,new_mult,self.types,self.attrs)
+        for t,t_info in other.types.iteritems():
+            new_edge.types[t] += t_info
+        for attr, value in other.attrs.iteritems():
+            if attr in new_edge.attrs:
+                new_edge.attrs[attr] += value
+            else:
+                new_edge.attrs[attr] = value
+        return new_edge
 
 class StructureGraphBuilder(object):
     def __init__(self, grammar):
+        self.debug = False
         self.grammar = grammar
         self.graph = {}
         self.generate_graph()
@@ -1066,12 +1132,34 @@ class StructureGraphBuilder(object):
                     if t != "Symbol":
                         print "ERROR: Unsupported char type (" + t + ") encountered!"
             return sucs
+            
+        def add_edge_params(s_name,e_name,params):
+            if s_name in self.edge_params:
+                if e_name in self.edge_params[s_name]:
+                    for param_name,value in params.iteritems():
+                        if param_name in self.edge_params[s_name][e_name]:
+                            self.edge_params[s_name][e_name][param_name] += value
+                        else:
+                            self.edge_params[s_name][e_name][param_name] = value
+                else:
+                    self.edge_params[s_name][e_name] = {}
+                    for param_name,value in params.iteritems():
+                        self.edge_params[s_name][e_name][param_name] = value
+            else:
+                self.edge_params[s_name] = {}
+                self.edge_params[s_name][e_name] = {}
+                for param_name,value in params.iteritems():
+                    self.edge_params[s_name][e_name][param_name] = value
 
         def handle_param_nested_split(lhs, nsplit, split_dirs):
             attrs = {}
             for s in nsplit.splits:
                 t = type(s).__name__
                 if t == "Split":
+                    suc2_names = get_suc_names(lhs, s.successor)
+                    for suc2_name in suc2_names:
+                        add_edge_params(lhs,suc2_name,get_params_from_expr(s.expr))
+                        
                     merge_dicts(attrs,get_params_from_expr(s.expr))
                     merge_dicts(attrs,handle_params(lhs, s.successor, split_dirs))
                 elif t == "NestedSplit":
@@ -1103,6 +1191,48 @@ class StructureGraphBuilder(object):
                 if t != "NoneType":
                     print "ERROR: Unsupported char type (" + t + ") encountered when parsing expression!"
             return attrs
+            
+        
+        def get_suc_names(lhs, successors):
+            sucs = {}
+            for suc in successors:
+                t = type(suc).__name__
+                if t == "Symbol":
+                    sucs[suc.name] = 1
+            for suc in successors:
+                t = type(suc).__name__
+                if t == "Instruction":
+                    pass
+                elif t == "ConditionalRule":
+                    index = 1
+                    for suc2 in suc.successors:
+                        lhs_new = lhs+"_"+str(index)
+                        sucs[lhs_new] = 1
+                        index += 1
+                        
+                    #default case
+                    lhs_new = lhs+"_0"
+                    sucs[lhs_new] = 1
+                elif t == "StochasticRule":
+                    index = 1
+                    for suc2 in suc.successors:
+                        lhs_new = lhs+"_"+str(index)
+                        sucs[lhs_new] = 1
+                        index += 1
+                        
+                    #default case
+                    lhs_new = lhs+"_0"
+                    sucs[lhs_new] = 1
+                elif t == "SubdivSplit":
+                    lhs_new = lhs+"_"+str(suc.direction)
+                    sucs[lhs_new] = 1
+                elif t == "ComponentSplit":
+                    for comp in suc.splits:
+                        merge_dicts(sucs,get_suc_names(lhs, comp.successor))
+                else:
+                    if t != "Symbol":
+                        print "ERROR: Unsupported char type (" + t + ") encountered!"
+            return sucs
 
         def handle_params(lhs, successors, split_dirs = None):
             attrs = {}
@@ -1114,7 +1244,18 @@ class StructureGraphBuilder(object):
                     if (not suc.name == "s") and (not suc.name == "t"):
                         for param in suc.params:
                             merge_dicts(attrs,get_params_from_expr(param))
+                            add_edge_params(lhs,lhs,get_params_from_expr(param))
                 elif t == "ConditionalRule":
+                    for i in range(len(suc.conditions)):
+                        next_lhs = lhs + "_" + str(i)
+                        suc2_names = get_suc_names(next_lhs, suc.successors[i])
+                        for suc2_name in suc2_names:
+                            if suc2_name == "Modillion":
+                                a=1
+                                
+                            for suc2_name in suc2_names:
+                                add_edge_params(next_lhs,suc2_name,get_params_from_expr(suc.conditions[i]))
+                                            
                     index = 1
                     for cond in suc.conditions:
                         merge_dicts(attrs,get_params_from_expr(cond))
@@ -1125,6 +1266,16 @@ class StructureGraphBuilder(object):
                     self.params[lhs+"_"+"0"] = {}
                     merge_dicts(self.params[lhs+"_"+"0"],handle_params(lhs+"_"+"0", suc.default))
                 elif t == "StochasticRule":  
+                    for i in range(len(suc.probabilities)):
+                        next_lhs = lhs + "_" + str(i)
+                        suc2_names = get_suc_names(next_lhs, suc.successors[i])
+                        for suc2_name in suc2_names:
+                            if suc2_name == "Modillion":
+                                a=1
+                            
+                            for suc2_name in suc2_names:
+                                add_edge_params(next_lhs,suc2_name,get_params_from_expr(suc.conditions[i]))
+                    
                     index = 1 
                     for prob in suc.probabilities:
                         merge_dicts(attrs,get_params_from_expr(prob))
@@ -1151,6 +1302,7 @@ class StructureGraphBuilder(object):
             return attrs
 
         self.params = {}
+        self.edge_params = {}
         self.count = {}
         self.attrs = {}
         self.connections = {
@@ -1170,6 +1322,15 @@ class StructureGraphBuilder(object):
             self.graph[lhs] = set()
             self.count[lhs] = handle_suc(lhs, rule.successor,self.connections)
             self.params[lhs] = handle_params(lhs, rule.successor)
+            
+        if self.debug:
+            for edge_name,edge in self.edge_params.iteritems():
+                print edge_name
+                for edge2_name, edge2 in edge.iteritems():
+                    print "\t" + edge2_name
+                    print "\t\t" +str(edge2)
+            
+        print "AST completed."
 
     def write_slightly_reduced_dot(self, file_name):      
         
@@ -1202,6 +1363,46 @@ class StructureGraphBuilder(object):
                         rule_stack.extend([x for x in mapping_from[iter_rule]])
                     else:
                         starting_rules.append(iter_rule)
+                        
+        def remove_nodes_lazily2(reduced_node_dict, node_dict,lazy_del_set,save_list = None):
+            if not save_list:
+                save_list =  []
+            visited_from = {}
+            disconnecting = {}
+            for orig_tuple in lazy_del_set:
+                print orig_tuple
+                orig = orig_tuple[1]
+                if orig in visited_from:
+                    continue
+                visited_from[orig] = True
+                dests = {}
+                for dest_tuple in lazy_del_set:
+                    if orig == dest_tuple[1]:
+                        dests[dest_tuple[0]] = True
+                valid_delete = True
+                for key,val in node_dict[orig].outgoing_edges.iteritems():#only allow deleting if all children are deleted
+                    if not key in dests:
+                        valid_delete = False
+                        
+                if orig in save_list:
+                    disconnecting[orig] = True
+                    valid_delete = True
+                    
+                if valid_delete:
+                    for dest_name,visited in dests.iteritems():
+                        if orig in reduced_node_dict[dest_name].incoming_edges:
+                            del reduced_node_dict[dest_name].incoming_edges[orig]   
+                        if orig in  reduced_node_dict and dest_name in reduced_node_dict[orig].outgoing_edges:
+                            del reduced_node_dict[orig].outgoing_edges[dest_name]
+            del_set = set()
+            for orig_tuple in lazy_del_set:
+                if orig_tuple[1] not in disconnecting:
+                    del_set.add(orig_tuple[1])    
+            for orig in del_set:
+                if orig in reduced_node_dict:
+                    if not reduced_node_dict[orig].incoming_edges:
+                        del reduced_node_dict[orig]                        
+                        
         def remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set,save_list = None):
             if not save_list:
                 save_list =  []
@@ -1241,6 +1442,71 @@ class StructureGraphBuilder(object):
                         del reduced_node_dict[orig]
         
         def get_structure_graph(mapping_suc,mapping_pred,s_rule):
+            
+            def get_children2(s_rule,pred,mapping_suc,mapping_pred,node_dict):
+                children = []
+                for rule in mapping_suc[s_rule]:
+                    #ignore self-referential edges
+                    if rule == s_rule:
+                        continue
+                    if rule in mapping_suc:
+                        if rule in node_dict:
+                            child = node_dict[rule]
+                        else:
+                            child = get_children2(rule,s_rule,mapping_suc,mapping_pred,node_dict)
+                    else:
+                        if rule in node_dict:
+                            child = node_dict[rule]
+                        else:
+                            child = Node(rule)
+                            if rule in self.edge_params and rule in self.edge_params[rule]:
+                                for attr in self.edge_params[rule][rule]:
+                                    if attr in self.attrs:
+                                        child.attrs[attr] = self.edge_params[rule][rule][attr]
+                            node_dict[rule] = child
+                    if child:
+                        children.append(child)
+                node = Node(s_rule)
+                if s_rule in self.edge_params and s_rule in self.edge_params[s_rule]:
+                    for attr in self.edge_params[s_rule][s_rule]:
+                        if attr in self.attrs:
+                            node.attrs[attr] = self.edge_params[s_rule][s_rule][attr]
+                
+                cons = self.connections
+                for c in children:
+                    #establish transitively who has repeating children
+                    if self.count[s_rule][c.name] < 0 or c.rep_trans_suc:
+                        node.rep_trans_suc = True
+                        
+                    #create edge
+                    edge = Edge(node,c,self.count[node.name][c.name])
+                    
+                    #update edge type
+                    for con_name,n_cons in edge.types.iteritems():
+                        if node.name in cons[con_name] and c.name in cons[con_name][node.name] and len(cons[con_name][node.name][c.name]) > 0 :
+                            edge.types[con_name] = cons[con_name][node.name][c.name]
+                            
+                    #update edge attrs
+                    if node.name in self.edge_params and c.name in self.edge_params[node.name]:
+                        for attr,value in self.edge_params[node.name][c.name].iteritems():
+                            if attr in self.attrs:
+                                if attr in edge.attrs:
+                                    edge.attrs[attr] += value
+                                else:
+                                    edge.attrs[attr] = value
+                        
+                    if c.name not in node.outgoing_edges:
+                        node.outgoing_edges[c.name] = edge
+                    else:
+                        print "ERROR: try to insert edge that already exists"
+                        
+                    if node.name not in c.incoming_edges:
+                        c.incoming_edges[node.name] = edge
+                    else:
+                        print "ERROR: try to insert edge that already exists"
+                                                        
+                node_dict[s_rule] = node
+                return node
             
             def add_overewrite_attributes(node,rule):
                 if rule in self.params:
@@ -1291,7 +1557,7 @@ class StructureGraphBuilder(object):
                 return node
 
             sg_node_dict = {}
-            get_children(s_rule,None,mapping_suc,mapping_pred,sg_node_dict)
+            get_children2(s_rule,None,mapping_suc,mapping_pred,sg_node_dict)
             return sg_node_dict            
        
         def transfer_childs_successors(receptor, origin,  lazy_del_set, node_dict, red_node_dict, branched = False):
@@ -1377,10 +1643,51 @@ class StructureGraphBuilder(object):
                     
                 #lazily delete old connection
                 lazy_del_set.add((sn,on,))  
+
+        def transfer_childs_successors2(receptor, origin,  lazy_del_set, node_dict, red_node_dict, branched = False):
+            rn = receptor.name
+            on = origin.name
+            
+            if self.debug:
+                print "Transfering children from " + on + " to " + rn       
+            
+            for sn,count in origin.outgoing_edges.iteritems():
+                if sn not in red_node_dict:
+                    continue
+                
+                edge_base = node_dict[rn]
+                new_edge = edge_base.outgoing_edges[on].join(origin.outgoing_edges[sn])
+                
+                if not new_edge:
+                    a=1
+                new_edge.origin = receptor
+                new_edge.destination = red_node_dict[new_edge.destination.name]
+                
+                receptor.outgoing_edges[sn] = new_edge
+                red_node_dict[sn].incoming_edges[rn] = new_edge
+                                    
+                #lazily delete old connection
+                lazy_del_set.add((sn,on,))  
+            lazy_del_set.add((on,rn,))
         
+        def copy_successors2(red_node_dict, node_dict, copy, origin, child, merge_comps = False):
+            cpn = copy.name
+            chn = child.name
+            
+            if cpn == origin.name:
+                edge = origin.outgoing_edges[chn].clone()
+                copy.outgoing_edges[chn] = edge
+                child.incoming_edges[cpn] = edge
+            else:
+                print "ERROR this is not a copy operation"
+            
+            
+
         def copy_successors(red_node_dict, node_dict, copy, origin, child, merge_comps = False):
             cpn = copy.name
             chn = child.name
+            
+            
             
             #establish child's predecessors
             if cpn in node_dict[chn].predecessors:
@@ -1439,6 +1746,120 @@ class StructureGraphBuilder(object):
                     else:
                         cons[chn] = node_dict[origin.name].suc_cons[con_name][chn]
 
+        def aggregate_redundant_nodes2(node_dict,starting_rule):  
+
+            def test_mergeable(node_dict,old_node,new_child):
+                cname = new_child.name
+                types = old_node.outgoing_edges[cname].types
+                                
+                if (    len(types["comp"]) > 0 or
+                        len(types["split"]) > 0 or
+                        len(types["prob"]) > 0 or
+                        len(types["case"]) > 0 ) :
+                    return False
+                else:
+                    if len(node_dict[new_child.name].incoming_edges) == 1:
+                        return True
+                    else:
+                        return False
+                
+            def gather_finite_attrs(node_dict, attrs, root_name, node_name):
+                node = node_dict[node_name]
+                new_attrs = {}
+                for suc_name,edge in node.outgoing_edges.iteritems():
+                    gather_finite_attrs(node_dict, new_attrs, node_name, suc_name)
+                    
+                    for attr,value in edge.attrs.iteritems():
+                        if attr in new_attrs:
+                            new_attrs[attr] += value
+                        else:
+                            new_attrs[attr] = value
+                
+                if node.attrs:
+                    for attr in node.attrs:
+                        if attr in new_attrs:
+                            new_attrs[attr] += node.attrs[attr]
+                        else:
+                            new_attrs[attr] = node.attrs[attr]
+                            
+                for attr in new_attrs:
+                    if attr in attrs:
+                        attrs[attr] += new_attrs[attr] * node.incoming_edges[root_name].multiplicity
+                    else:
+                        attrs[attr] = new_attrs[attr] * node.incoming_edges[root_name].multiplicity
+                
+                return attrs
+                            
+            
+            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set,only_delete_child):
+                if s_rule in reduced_node_dict:
+                    return reduced_node_dict[s_rule]
+                old_node = node_dict[s_rule]
+                    
+                rep_pred = False
+                for pred_name, edge in old_node.incoming_edges.iteritems():
+                    if edge.multiplicity < 0:
+                        rep_pred = True
+                        break
+                    
+                if not old_node.outgoing_edges and not old_node.attrs and not rep_pred:
+                    return None
+                elif not old_node.outgoing_edges and (old_node.attrs or rep_pred):
+                    new_leave = Node(old_node.name, dict(old_node.attrs))
+                    reduced_node_dict[new_leave.name] = new_leave
+                    return new_leave
+                    
+                new_node = Node(old_node.name, dict(old_node.attrs))
+                
+                #gather children
+                children = []
+                for suc_name, edge in old_node.outgoing_edges.iteritems():
+                    #Gather attributes from finite children
+                    old_child = node_dict[suc_name]
+                    if not old_child.rep_trans_suc and old_child.incoming_edges[old_node.name]>0:
+                        min_mult = float("inf")
+                        for pred_name, edge2 in old_child.incoming_edges.iteritems():
+                            min_mult = min(min_mult,edge2.multiplicity)
+                        if min_mult > 0 :
+                            gather_finite_attrs(node_dict, new_node.attrs,new_node.name,suc_name)
+                            continue
+                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set,only_delete_child)
+                    if suc:
+                        children.append(suc)
+                                                
+                if not children and not old_node.attrs and not rep_pred:
+                    return None
+                
+                #update multiplicity of node
+                new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
+                for child in children:
+                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc 
+                
+                #process children
+                for child in children:
+                    mergeable = test_mergeable(node_dict,old_node,child)
+                    if mergeable:
+                        merge_dicts(new_node.attrs,child.attrs)
+                        transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                        only_delete_child[new_node.name]=True
+                        if child.name in only_delete_child:
+                            del only_delete_child[child.name]
+                    else:
+                        copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child)
+                
+                if not new_node.attrs and not new_node.outgoing_edges and not rep_pred:
+                    return None
+                reduced_node_dict[new_node.name] = new_node
+                return reduced_node_dict[new_node.name]
+            
+            print "PHASE 1: Aggregate redundant nodes"
+            reduced_node_dict = {}
+            lazy_del_set = set()
+            only_delete_child = {}
+            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set,only_delete_child)
+            remove_nodes_lazily2(reduced_node_dict, node_dict,lazy_del_set,list(only_delete_child.keys()))
+            return reduced_node_dict
+            
         def aggregate_redundant_nodes(node_dict,starting_rule):  
 
             def test_mergeable(node_dict,old_node,new_child):
@@ -2017,19 +2438,20 @@ class StructureGraphBuilder(object):
         rsg3 = {} 
         rsg4 = {} 
         rsg5 = {} 
-        rsg_list = [rsg1,rsg2,rsg3,rsg4,rsg5]#,rsg6,rsg7]
+        rsg_list = [rsg1]#,rsg2,rsg3,rsg4,rsg5]#,rsg6,rsg7]
         for starting_rule in starting_rules:
             structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
-            rsg1[starting_rule] = aggregate_redundant_nodes(structure_graphs[starting_rule],starting_rule)
-            rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
-            rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
-            rsg4[starting_rule] = aggregate_redundant_splits(rsg3[starting_rule],starting_rule)
-            rsg5[starting_rule] = aggregate_redundant_split_children(rsg4[starting_rule],starting_rule)
+            rsg1[starting_rule] = aggregate_redundant_nodes2(structure_graphs[starting_rule],starting_rule)
+#            rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
+#            rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
+#            rsg4[starting_rule] = aggregate_redundant_splits(rsg3[starting_rule],starting_rule)
+#            rsg5[starting_rule] = aggregate_redundant_split_children(rsg4[starting_rule],starting_rule)
         
         index = 1
         for rsg in rsg_list:      
             visited = {}
             labels = ""
+            edges = ""
             output = "digraph {\n"
             for starting_rule in starting_rules:
                 node_dict = rsg[starting_rule]
@@ -2043,31 +2465,38 @@ class StructureGraphBuilder(object):
                         continue
                     else:
                         visited[rule_node.name]=1
-                    for suc_rule,count in rule_node.successors.iteritems():
-                        rule_stack.append(node_dict[suc_rule])
-                    deps = rule_node.successors
+                    #for suc_rule,count in rule_node.successors.iteritems():
+                    #    rule_stack.append(node_dict[suc_rule])
+                    deps = rule_node.outgoing_edges#successors
                     rule = rule_node.name
-                    labels += "    " + node_name(rule) + ' [label=<"' + rule + '"'
+                    labels += "    " + node_name(rule) + ' [label=<' + rule
                     for attr in rule_node.attrs:
-                        if attr in self.attrs:
-                            if rule_node.attrs[attr] > 0:
-                                labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(rule_node.attrs[attr])+'</FONT>'
-                            else:
-                                labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
-                    labels +='>]\n'
-                    for d in deps:
-                        output += '    ' + node_name(rule) + ' -> ' + node_name(d)
-                        output += '[label=<'
-                        if rule_node.successors[d] > 0:
-                            output += str(rule_node.successors[d])+ ''
+                        if rule_node.attrs[attr] > 0:
+                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(rule_node.attrs[attr])+'</FONT>'
                         else:
-                            output += 'n'
-                        for con_name, cons in rule_node.suc_cons.iteritems():
-                            if d in cons and len(cons[d]) > 0:
-                                output += '; '+cons[d]
-                        output += '>]\n'
+                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+                    labels +='>]\n'
+                    for e_name, edge in deps.iteritems():
+                        rule_stack.append(edge.destination)
+                        edges += '    ' + node_name(edge.origin.name) + ' -> ' + node_name(edge.destination.name)
+                        edges += '[label=<'
+                        if edge.multiplicity > 0:
+                            edges += str(edge.multiplicity)+ ''
+                        else:
+                            edges += 'n'
+                        for t,t_info in edge.types.iteritems():
+                            if len(t_info) > 0:
+                                edges += ";" + t_info
+#                        
+                        for attr in edge.attrs:
+                            if edge.attrs[attr] > 0:
+                                edges += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(edge.attrs[attr])+'</FONT>'
+                            else:
+                                edges += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+                            
+                        edges += '>]\n'
                                 
-                output += labels
+                output += "    #Nodes\n" + labels + "\n    #Edges\n"+ edges
             output += "}"
 
             with file(file_name[0:3] + file_name[3:] + "_rsg" + str(index)+ ".gv", 'w') as out:
@@ -2083,13 +2512,15 @@ class StructureGraphBuilder(object):
         labels = ""
         output = "digraph {\n"
         for rule, deps in self.graph.iteritems():
-            labels += "    " + node_name(rule) + ' [label=<"' + rule + '"'
-            for attr in self.params[rule]:
-                if attr in self.attrs:
-                    if self.params[rule][attr] > 0:
-                        labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self.params[rule][attr])+'</FONT>'
-                    else:
-                        labels += '\n<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+            labels += "    " + node_name(rule) + ' [label=<' + rule
+            if rule in self.edge_params and rule in self.edge_params[rule]:
+                self_params = self.edge_params[rule][rule]
+                for attr in self_params:
+                    if attr in self.attrs:
+                        if self_params[attr] > 0:
+                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self_params[attr])+'</FONT>'
+                        else:
+                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
             labels +='>]\n'
             for d in deps:
                 output += '    ' + node_name(rule) + ' -> ' + node_name(d)
@@ -2104,6 +2535,14 @@ class StructureGraphBuilder(object):
                 for con_name, cons in self.connections.iteritems():
                     if rule in cons and d in cons[rule]:
                         output += '; '+cons[rule][d]
+                if rule in self.edge_params and d in self.edge_params[rule]:
+                    e_params = self.edge_params[rule][d]
+                    for attr in e_params:
+                        if attr in self.attrs:
+                            if e_params[attr] > 0:
+                                output += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(e_params[attr])+'</FONT>'
+                            else:
+                                output += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
                 output += '>]\n'
                     
         output += labels
