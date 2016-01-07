@@ -973,8 +973,8 @@ class Edge(object):
         return new_edge
 
 class StructureGraphBuilder(object):
-    def __init__(self, grammar):
-        self.debug = False
+    def __init__(self, grammar, debug = False):
+        self.debug = debug
         self.grammar = grammar
         self.graph = {}
         self.generate_graph()
@@ -1332,7 +1332,14 @@ class StructureGraphBuilder(object):
             
         print "AST completed."
 
-    def write_slightly_reduced_dot(self, file_name):      
+    def write_slightly_reduced_dot(self, file_name):
+        
+        def update_refs(node_dict):
+            for node_name,node in node_dict.iteritems():
+                for suc_name, edge in node.outgoing_edges.iteritems():
+                    node.outgoing_edges[suc_name].origin = node
+                for pred_name, edge in node.incoming_edges.iteritems():
+                    node.incoming_edges[pred_name].destination = node
         
         def merge_dicts(old,new,repeat = False):
             if repeat:
@@ -1370,7 +1377,6 @@ class StructureGraphBuilder(object):
             visited_from = {}
             disconnecting = {}
             for orig_tuple in lazy_del_set:
-                print orig_tuple
                 orig = orig_tuple[1]
                 if orig in visited_from:
                     continue
@@ -1390,10 +1396,11 @@ class StructureGraphBuilder(object):
                     
                 if valid_delete:
                     for dest_name,visited in dests.iteritems():
-                        if orig in reduced_node_dict[dest_name].incoming_edges:
-                            del reduced_node_dict[dest_name].incoming_edges[orig]   
-                        if orig in  reduced_node_dict and dest_name in reduced_node_dict[orig].outgoing_edges:
-                            del reduced_node_dict[orig].outgoing_edges[dest_name]
+                        if dest_name in reduced_node_dict:
+                            if orig in reduced_node_dict[dest_name].incoming_edges:
+                                del reduced_node_dict[dest_name].incoming_edges[orig]   
+                            if orig in  reduced_node_dict and dest_name in reduced_node_dict[orig].outgoing_edges:
+                                del reduced_node_dict[orig].outgoing_edges[dest_name]
             del_set = set()
             for orig_tuple in lazy_del_set:
                 if orig_tuple[1] not in disconnecting:
@@ -1665,21 +1672,50 @@ class StructureGraphBuilder(object):
                 
                 receptor.outgoing_edges[sn] = new_edge
                 red_node_dict[sn].incoming_edges[rn] = new_edge
+                
+                if branched:#remove branching symbols
+                    new_edge.types["case"] = ""
+                    new_edge.types["prob"] = ""
                                     
                 #lazily delete old connection
                 lazy_del_set.add((sn,on,))  
             lazy_del_set.add((on,rn,))
         
         def copy_successors2(red_node_dict, node_dict, copy, origin, child, merge_comps = False):
+            
+            def gather_multiplicity(origin, child):
+                mult1 = 0
+                for suc_name, edge in origin.outgoing_edges.iteritems():
+                    if suc_name == child.name:
+                        return edge.multiplicity
+                    else:
+                        mult2 = gather_multiplicity(edge.destination,child)
+                        mult1 += edge.multiplicity * mult2
+                return mult1
+            
             cpn = copy.name
             chn = child.name
             
-            if cpn == origin.name:
-                edge = origin.outgoing_edges[chn].clone()
+            if chn == "Facade":
+                a=1
+            
+            if not merge_comps:
+                if cpn == origin.name:
+                    edge = origin.outgoing_edges[chn].clone()
+                    copy.outgoing_edges[chn] = edge
+                    child.incoming_edges[cpn] = edge
+                else:
+                    print "ERROR this is not a copy operation"
+            else:
+                multiplicity = gather_multiplicity(origin, child)
+                edge = Edge(copy,child,multiplicity)
+                
+                for suc_name, edge2 in origin.outgoing_edges.iteritems():
+                    comp = edge2.types['comp']
+                    break
+                edge.types["comp"] = comp
                 copy.outgoing_edges[chn] = edge
                 child.incoming_edges[cpn] = edge
-            else:
-                print "ERROR this is not a copy operation"
             
             
 
@@ -1791,7 +1827,7 @@ class StructureGraphBuilder(object):
                 return attrs
                             
             
-            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set,only_delete_child):
+            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set, only_delete_child):
                 if s_rule in reduced_node_dict:
                     return reduced_node_dict[s_rule]
                 old_node = node_dict[s_rule]
@@ -1823,7 +1859,7 @@ class StructureGraphBuilder(object):
                         if min_mult > 0 :
                             gather_finite_attrs(node_dict, new_node.attrs,new_node.name,suc_name)
                             continue
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set,only_delete_child)
+                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set, only_delete_child)
                     if suc:
                         children.append(suc)
                                                 
@@ -1856,143 +1892,37 @@ class StructureGraphBuilder(object):
             reduced_node_dict = {}
             lazy_del_set = set()
             only_delete_child = {}
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set,only_delete_child)
-            remove_nodes_lazily2(reduced_node_dict, node_dict,lazy_del_set,list(only_delete_child.keys()))
+            reduce_successors(reduced_node_dict, node_dict, starting_rule, lazy_del_set, only_delete_child)
+            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
+            update_refs(reduced_node_dict)
             return reduced_node_dict
             
-        def aggregate_redundant_nodes(node_dict,starting_rule):  
+        def aggreate_edge_type_info(type_names, node):
+            types = {}
+            for t in type_names:
+                types[t] = {}
+            for suc_name, edge in node.outgoing_edges.iteritems():
+                for t in types:
+                    if len(edge.types[t]) > 0:
+                        types[t][suc_name] = edge.types[t]
+            return types
+                        
+        def aggregate_redundant_cases2(node_dict, starting_rule):  
 
-            def test_mergeable(node_dict,old_node,new_child):
-                cname = new_child.name
-                if (    cname in old_node.suc_cons["comp"] or
-                        cname in old_node.suc_cons["split"] or
-                        cname in old_node.suc_cons["prob"] or
-                        cname in old_node.suc_cons["case"]):
-                    return False
-                else:
-                    if len(node_dict[new_child.name].predecessors) == 1:
-                        return True
-                    else:
-                        return False
+            def test_mergeable(node_dict, old_node, new_child):
                 
-            def gather_finite_attrs(node_dict, attrs, root_name, node_name):
-                node = node_dict[node_name]
-                new_attrs = {}
-                for suc_name in node.successors:
-                    gather_finite_attrs(node_dict, new_attrs, node_name, suc_name)
-                
-                if node.attrs:
-                    for attr in node.attrs:
-                        if attr in new_attrs:
-                            new_attrs[attr] += node.attrs[attr]
-                        else:
-                            new_attrs[attr] = node.attrs[attr]
-                            
-                for attr in new_attrs:
-                    if attr in attrs:
-                        attrs[attr] += new_attrs[attr] * node.predecessors[root_name]
-                    else:
-                        attrs[attr] = new_attrs[attr] * node.predecessors[root_name]
-                
-                return attrs
-                            
-            
-            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set):
-                if s_rule in reduced_node_dict:
-                    return reduced_node_dict[s_rule]
-                old_node = node_dict[s_rule]
-                
-                rep_pred = False
-                for pred_name, count in old_node.predecessors.iteritems():
-                    if count < 0:
-                        rep_pred = True
-                        break
-                
-                if not old_node.successors and not old_node.attrs and not rep_pred:#remove empty leaves
-                    return None
-                elif not old_node.successors and old_node.attrs:#keep leaves with attrs
-                    new_leave = Node(old_node.name, attrs = old_node.attrs)
-                    reduced_node_dict[new_leave.name] = new_leave
-                    return new_leave
-                elif not old_node.successors and rep_pred:#structural nodes
-                    new_leave = Node(old_node.name, attrs = old_node.attrs)
-                    reduced_node_dict[new_leave.name] = new_leave
-                    return new_leave
-                    
-                new_node = Node(old_node.name, old_node.attrs)
-                
-                #gather children
-                children = []
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    #Gather attributes from finite children
-                    if not node_dict[suc_name].rep_trans_suc and node_dict[suc_name].predecessors[old_node.name]>0:
-                        old_child = node_dict[suc_name]
-                        min_mult = float("inf")
-                        for pred_name, count in old_child.predecessors.iteritems():
-                            min_mult = min(min_mult,count)
-                        if min_mult > 0:
-                            gather_finite_attrs(node_dict, new_node.attrs,new_node.name,suc_name)
-                            continue
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
-                    if suc:
-                        children.append(suc)
-                if not children and not old_node.attrs and not rep_pred:
-                    return None
-                
-                #update multiplicity of node
-                new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
-                for child in children:
-                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc 
-                
-                #process children
-                for child in children:
-                    mergeable = test_mergeable(node_dict,old_node,child)
-                    if mergeable:
-                        merge_dicts(new_node.attrs,child.attrs)
-                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
-                    else:
-                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
-                
-                if not new_node.attrs and not new_node.successors and not rep_pred:
-                    return None
-                reduced_node_dict[new_node.name] = new_node
-                return new_node
-            
-            print "PHASE 1: Aggregate redundant nodes"
-            reduced_node_dict = {}
-            lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
-            return reduced_node_dict
-            
-        def aggregate_redundant_cases(node_dict,starting_rule):  
-
-            def test_mergeable(node_dict,old_node,new_child):
-                probs = old_node.suc_cons["prob"]
-                cases = old_node.suc_cons["case"]
-                if (    (len(probs) == 1 and new_child.name in probs and len (probs[new_child.name]) > 0) or
-                        (len(cases) == 1 and new_child.name in cases and len (cases[new_child.name]) > 0)):
+                types = aggreate_edge_type_info(["prob","case"], old_node)
+                probs = types["prob"]
+                cases = types["case"]
+                if (    (len(probs) >= 1 and new_child.name in probs and len (probs[new_child.name]) > 0) or
+                        (len(cases) >= 1 and new_child.name in cases and len (cases[new_child.name]) > 0)):
+                    if self.debug:
+                        print "Merge " + new_child.name + " into " + old_node.name
                     return True
-                elif (  len(probs) > 1 or
-                        len(cases) > 1): #check that all branches unit in a common successor (only to depth = 1)
-                    branch_sucs = {}
-                    branch_len = len(old_node.successors)
-                    for suc_name in old_node.successors:
-                        suc = node_dict[suc_name]
-                        for suc2_name,count in suc.successors.iteritems():
-                            if suc2_name in branch_sucs:
-                                branch_sucs[suc2_name] += 1
-                            else:
-                                branch_sucs[suc2_name] = 1
-                    mergeable = True
-                    for key, val in branch_sucs.iteritems():
-                        if val != branch_len:
-                            mergeable = True
-                    return mergeable
                 else:
                     return False                            
             
-            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set):
+            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set, only_delete_child):
                 if s_rule in reduced_node_dict:
                     return reduced_node_dict[s_rule]
                 old_node = node_dict[s_rule]
@@ -2001,8 +1931,8 @@ class StructureGraphBuilder(object):
                 
                 #gather children
                 children = []
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
-                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
+                for suc_name,count in old_node.outgoing_edges.iteritems():#collect valid children
+                    suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set, only_delete_child)
                     if suc:
                         children.append(suc)
                 
@@ -2017,52 +1947,34 @@ class StructureGraphBuilder(object):
                     if mergeable:
                         merge_dicts(new_node.attrs,child.attrs)
                         branched = True
-                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict,branched)
+                        transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict, branched)
+                        only_delete_child[new_node.name]=True
+                        if child.name in only_delete_child:
+                            del only_delete_child[child.name]
                     else:
-                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
+                        copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child)
                 
                 reduced_node_dict[new_node.name] = new_node
-                return new_node
+                return reduced_node_dict[new_node.name]
             
             print "PHASE 2: Aggregate redundant cases/probs"
             reduced_node_dict = {}
             lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
+            only_delete_child = {}
+            reduce_successors(reduced_node_dict, node_dict, starting_rule, lazy_del_set, only_delete_child)
+            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
+            update_refs(reduced_node_dict)
             return reduced_node_dict
             
-        def aggregate_redundant_comps(node_dict,starting_rule):  
-
-            def test_mergeable(node_dict,old_node,new_child):
-                probs = old_node.suc_cons["prob"]
-                cases = old_node.suc_cons["case"]
-                if (    (len(probs) == 1 and new_child.name in probs and len (probs[new_child.name]) > 0) or
-                        (len(cases) == 1 and new_child.name in cases and len (cases[new_child.name]) > 0)):
-                    return True
-                elif (  len(probs) > 1 or
-                        len(cases) > 1): #check that all branches unit in a common successor (only to depth = 1)
-                    branch_sucs = {}
-                    branch_len = len(old_node.successors)
-                    for suc_name in old_node.successors:
-                        suc = node_dict[suc_name]
-                        for suc2_name in suc.successors:
-                            if suc2_name in branch_sucs:
-                                branch_sucs[suc2_name] += 1
-                            else:
-                                branch_sucs[suc2_name] = 1
-                    for key, val in branch_sucs.iteritems():
-                        if val != branch_len:
-                            return False
-                    return True
-                else:
-                    return False      
+        def aggregate_redundant_comps2(node_dict,starting_rule):  
 
             def find_splits(reduced_node_dict, node_dict, s_rule):
                 old_node = node_dict[s_rule]
-                if len(old_node.suc_cons["split"]) > 0:
+                types = aggreate_edge_type_info(["split"], old_node)
+                if len(types["split"]) > 0:
                     return set([old_node.name])
                 split_nodes = set()
-                for suc_name,count in old_node.successors.iteritems():#collect valid children
+                for suc_name,edge in old_node.outgoing_edges.iteritems():#collect valid children
                     prev = find_splits(reduced_node_dict, node_dict, suc_name)
                     split_nodes = split_nodes | prev
                 return split_nodes
@@ -2077,8 +1989,14 @@ class StructureGraphBuilder(object):
                 node = node_dict[node_name]
                 new_attrs = {}
                 if not reduced:
-                    for suc_name in node.successors:
+                    for suc_name,edge in node.outgoing_edges.iteritems():
                         gather_attrs_until_split(node_dict, split_nodes, new_attrs, node_name, suc_name)
+                        
+                        for attr,value in edge.attrs.iteritems():
+                            if attr in new_attrs:
+                                new_attrs[attr] += value
+                            else:
+                                new_attrs[attr] = value
                 
                     if node.attrs:
                         for attr in node.attrs:
@@ -2089,45 +2007,45 @@ class StructureGraphBuilder(object):
                             
                 for attr in new_attrs:
                     if attr in attrs:
-                        attrs[attr] += new_attrs[attr] * node.predecessors[root_name]
+                        attrs[attr] += new_attrs[attr] * node.incoming_edges[root_name].multiplicity
                     else:
-                        attrs[attr] = new_attrs[attr] * node.predecessors[root_name]
+                        attrs[attr] = new_attrs[attr] * node.incoming_edges[root_name].multiplicity
                 
                 return attrs
                 
-            def gather_nodes_until_split(reduced_node_dict, node_dict, s_rule, split_nodes):
+            def gather_nodes_until_split(reduced_node_dict, node_dict, s_rule, split_nodes, only_delete_child):
                 
                 old_node = node_dict[s_rule]
-                for suc_name in old_node.successors:
+                for suc_name in old_node.outgoing_edges:
                     if suc_name in split_nodes:
                         return None
                         
                 new_node = Node(old_node.name, old_node.attrs)
                 
                 children = []
-                for suc_name in old_node.successors:
-                    sup = gather_nodes_until_split(reduced_node_dict, node_dict, suc_name, split_nodes)
-                    if sup:
+                for suc_name in old_node.outgoing_edges:
+                    step = gather_nodes_until_split(reduced_node_dict, node_dict, suc_name, split_nodes, only_delete_child)
+                    if step:
                         child = reduced_node_dict[suc_name]
                     else:
                         child = node_dict[suc_name]
                     children.append(child)
-                    if new_node.name == "SideFacade" or child.name == "SideFacade":
-                        a= 1
                 for child in children:
-                    transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                    transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                    only_delete_child[new_node.name]=True
+                    if child.name in only_delete_child:
+                        del only_delete_child[child.name]
                 
                 reduced_node_dict[new_node.name] = new_node
-                return new_node
+                return reduced_node_dict[new_node.name]
 
-            def reduce_until_splits(reduced_node_dict, node_dict, s_rule, split_nodes, lazy_del_set):
-                
+            def reduce_until_splits(reduced_node_dict, node_dict, s_rule, split_nodes, lazy_del_set, only_delete_child):
                 old_node = node_dict[s_rule]
-                new_node = gather_nodes_until_split(reduced_node_dict, node_dict, s_rule, split_nodes)
+                new_node = gather_nodes_until_split(reduced_node_dict, node_dict, s_rule, split_nodes, only_delete_child)
                 if not new_node:
                     return None
                     
-                for suc_name,val in old_node.successors.iteritems():
+                for suc_name in old_node.outgoing_edges:
                     gather_attrs_until_split(node_dict, split_nodes, new_node.attrs, s_rule, suc_name)
                          
                 children = []
@@ -2139,49 +2057,50 @@ class StructureGraphBuilder(object):
                 for child in children:
                     new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc
                     
-                    copy_successors(reduced_node_dict, node_dict, new_node, old_node, child, merge_comps)
-                    child.pred_cons["comp"][new_node.name] = "f"
-                    new_node.suc_cons["comp"][child.name] = "f"
-                    if new_node.name in child.pred_cons["case"]:
-                        del child.pred_cons["case"][new_node.name]
-                    if child.name in new_node.suc_cons["case"]:
-                        del new_node.suc_cons["case"][child.name]
-                    if new_node.name in child.pred_cons["prob"]:
-                        del child.pred_cons["prob"][new_node.name]
-                    if child.name in new_node.suc_cons["prob"]:
-                        del new_node.suc_cons["prob"][child.name]
+                    copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child, merge_comps)
+#                    child.pred_cons["comp"][new_node.name] = "f"
+#                    new_node.suc_cons["comp"][child.name] = "f"
+#                    if new_node.name in child.pred_cons["case"]:
+#                        del child.pred_cons["case"][new_node.name]
+#                    if child.name in new_node.suc_cons["case"]:
+#                        del new_node.suc_cons["case"][child.name]
+#                    if new_node.name in child.pred_cons["prob"]:
+#                        del child.pred_cons["prob"][new_node.name]
+#                    if child.name in new_node.suc_cons["prob"]:
+#                        del new_node.suc_cons["prob"][child.name]
                 
                 reduced_node_dict[new_node.name] = new_node
-                return new_node
+                return reduced_node_dict[new_node.name]
       
             
-            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set):
+            def reduce_successors(reduced_node_dict, node_dict, s_rule,lazy_del_set, only_delete_child):
                 if s_rule in reduced_node_dict:
                     return reduced_node_dict[s_rule]
                 old_node = node_dict[s_rule]
                 
                 new_node = Node(old_node.name, old_node.attrs)
                 
-                
                 should_reduce = True
                 children = []
-                if len(old_node.suc_cons["comp"]) > 0 and old_node.rep_trans_suc:                
+                
+                types = aggreate_edge_type_info(["comp"], old_node)
+                if len(types["comp"]) > 0 and old_node.rep_trans_suc:                
                     #gather children until split 
                     split_nodes = find_splits(reduced_node_dict, node_dict, s_rule)
                     for suc_name,node in old_node.successors.iteritems():
                         if suc_name in split_nodes:
                             should_reduce = False
                     for suc_name in split_nodes:#collect valid children
-                        suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
+                        suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set, only_delete_child)
                         if suc:
                             children.append(suc)
                     if should_reduce:
-                        reduce_until_splits(reduced_node_dict, node_dict, s_rule,split_nodes,lazy_del_set)
+                        reduce_until_splits(reduced_node_dict, node_dict, s_rule,split_nodes,lazy_del_set, only_delete_child)
                 else:
                     should_reduce = False
                     #gather children
-                    for suc_name,count in old_node.successors.iteritems():#collect valid children
-                        suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set)
+                    for suc_name,edge in old_node.outgoing_edges.iteritems():#collect valid children
+                        suc = reduce_successors(reduced_node_dict, node_dict, suc_name,lazy_del_set, only_delete_child)
                         if suc:
                             children.append(suc)
                  
@@ -2189,17 +2108,21 @@ class StructureGraphBuilder(object):
                 #update multiplicity of node
                 new_node.rep_trans_suc = node_dict[old_node.name].rep_trans_suc
                 for child in children:
-                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc  
-                    copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
+                    new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc
+                    if child.name == "Facade":
+                        a= 1
+                    merge_comps = should_reduce
+                    copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child,merge_comps)
                 if not should_reduce:
                     reduced_node_dict[new_node.name] = new_node
-                return new_node
+                return reduced_node_dict[new_node.name]
             
             print "PHASE 3: Aggregate redundant comps"
             reduced_node_dict = {}
             lazy_del_set = set()
-            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set)
-            remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set)
+            only_delete_child = {}
+            reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set, only_delete_child)
+            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
             return reduced_node_dict
         
         def aggregate_redundant_splits(node_dict,starting_rule):
@@ -2438,12 +2361,12 @@ class StructureGraphBuilder(object):
         rsg3 = {} 
         rsg4 = {} 
         rsg5 = {} 
-        rsg_list = [rsg1]#,rsg2,rsg3,rsg4,rsg5]#,rsg6,rsg7]
+        rsg_list = [rsg1,rsg2,rsg3]#,rsg4,rsg5]#,rsg6,rsg7]
         for starting_rule in starting_rules:
             structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
             rsg1[starting_rule] = aggregate_redundant_nodes2(structure_graphs[starting_rule],starting_rule)
-#            rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
-#            rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
+            rsg2[starting_rule] = aggregate_redundant_cases2(rsg1[starting_rule],starting_rule)
+            rsg3[starting_rule] = aggregate_redundant_comps2(rsg2[starting_rule],starting_rule)
 #            rsg4[starting_rule] = aggregate_redundant_splits(rsg3[starting_rule],starting_rule)
 #            rsg5[starting_rule] = aggregate_redundant_split_children(rsg4[starting_rule],starting_rule)
         
@@ -2455,18 +2378,17 @@ class StructureGraphBuilder(object):
             output = "digraph {\n"
             for starting_rule in starting_rules:
                 node_dict = rsg[starting_rule]
-                rule = node_dict[starting_rule]
+                s_rule = node_dict[starting_rule]
                 if rule is None:
                     continue
-                rule_stack = [rule]
+                rule_stack = [s_rule]
                 while rule_stack:
+                    print rule
                     rule_node = rule_stack.pop()
                     if rule_node.name in visited:
                         continue
                     else:
                         visited[rule_node.name]=1
-                    #for suc_rule,count in rule_node.successors.iteritems():
-                    #    rule_stack.append(node_dict[suc_rule])
                     deps = rule_node.outgoing_edges#successors
                     rule = rule_node.name
                     labels += "    " + node_name(rule) + ' [label=<' + rule
@@ -2477,6 +2399,7 @@ class StructureGraphBuilder(object):
                             labels += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
                     labels +='>]\n'
                     for e_name, edge in deps.iteritems():
+                        print edge
                         rule_stack.append(edge.destination)
                         edges += '    ' + node_name(edge.origin.name) + ' -> ' + node_name(edge.destination.name)
                         edges += '[label=<'
