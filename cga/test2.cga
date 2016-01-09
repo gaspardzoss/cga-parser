@@ -1,0 +1,33 @@
+/**
+ * File:    test2.cga
+ * Created: 24 Nov 2015 13:58:15 GMT
+ * Author:  jach8137
+ */
+
+version "2016.0"
+
+attr buildingH = 27  
+
+attr floorH = 3.5
+attr tileW = 4
+
+Lot --> Lot2
+
+
+Lot2 -->
+	extrude(buildingH)BuildingA
+	
+BuildingA -->
+	comp(f){ front: Facade 
+		   | back : Side 
+		   | left : Side 		# instead of using "side" as selector, we use "left" and ..
+		   | right: Side 		# .. "right" so that we can differentiate later (needed for the cornice)
+		   | top  : Roof }
+		   
+		   
+Facade -->
+	split(y){~floorH:Floor}*
+	
+	
+Floor --> split(x){tileW:Tile(split.index)}*
+	
