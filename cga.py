@@ -1378,33 +1378,8 @@ class StructureGraphBuilder(object):
                     print "\t\t" +str(edge2)
         if self.verbose:   
             print "AST completed."
-
-    def write_slightly_reduced_dot(self, file_name):
-                        
-        def node_name(rule):
-            # GraphViz dot cannot handle . in the node names.
-            return rule.replace('.', '_')
         
-        def update_refs(node_dict):
-            for node_name,node in node_dict.iteritems():
-                for suc_name, edges in node.outgoing_edges.iteritems():
-                    node.outgoing_edges[suc_name].origin = node
-                for pred_name, edge in node.incoming_edges.iteritems():
-                    node.incoming_edges[pred_name].destination = node
-        
-        def merge_dicts(old,new,repeat = False):
-            if repeat:
-                for key in new:
-                    old[key] = -1
-            else:
-                for key in new:
-                    if key in old:    
-                        if old[key] > 0 and new[key] > 0:
-                            old[key] += new[key]
-                        elif new[key] < 0:
-                            old[key] = new[key]
-                    else:
-                        old[key] = new[key]
+    def compute_structure_graph(self):
         
         def mark_visited(rule,mapping_from,visited,starting_rules):
             visited.append(rule)
@@ -1418,45 +1393,7 @@ class StructureGraphBuilder(object):
                     else:
                         starting_rules.append(iter_rule)
                         
-        def remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set,save_list = None):
-            if not save_list:
-                save_list =  []
-            visited_from = {}
-            disconnecting = {}
-            for orig_tuple in lazy_del_set:
-                orig = orig_tuple[1]
-                if orig in visited_from:
-                    continue
-                visited_from[orig] = True
-                dests = {}
-                for dest_tuple in lazy_del_set:
-                    if orig == dest_tuple[1]:
-                        dests[dest_tuple[0]] = True
-                valid_delete = True
-                for key,val in node_dict[orig].outgoing_edges.iteritems():#only allow deleting if all children are deleted
-                    if not key in dests:
-                        valid_delete = False
-                        
-                if orig in save_list:
-                    disconnecting[orig] = True
-                    valid_delete = True
-                    
-                if valid_delete:
-                    for dest_name,visited in dests.iteritems():
-                        if dest_name in reduced_node_dict:
-                            if orig in reduced_node_dict[dest_name].incoming_edges:
-                                del reduced_node_dict[dest_name].incoming_edges[orig]   
-                            if orig in  reduced_node_dict and dest_name in reduced_node_dict[orig].outgoing_edges:
-                                del reduced_node_dict[orig].outgoing_edges[dest_name]
-            del_set = set()
-            for orig_tuple in lazy_del_set:
-                if orig_tuple[1] not in disconnecting:
-                    del_set.add(orig_tuple[1])    
-            for orig in del_set:
-                if orig in reduced_node_dict:
-                    if not reduced_node_dict[orig].incoming_edges:
-                        del reduced_node_dict[orig]
-        
+                
         def get_structure_graph(mapping_suc,mapping_pred,s_rule):
             
             def get_children2(s_rule,pred,mapping_suc,mapping_pred,node_dict):
@@ -1523,16 +1460,104 @@ class StructureGraphBuilder(object):
                                                         
                 node_dict[s_rule] = node
                 return node
-            
-            def add_overewrite_attributes(node,rule):
-                if rule in self.params:
-                    for attr in self.params[rule]:
-                        if attr in self.attrs:
-                            node.attrs[attr] = self.params[rule][attr]
 
             sg_node_dict = {}
             get_children2(s_rule,None,mapping_suc,mapping_pred,sg_node_dict)
             return sg_node_dict   
+        
+        #obtain predecessors and successors
+        mapping_to = {}
+        mapping_from = {}
+        for rule, deps in self.graph.iteritems():
+            for d in deps:
+                if rule in mapping_to:
+                    mapping_to[rule].append(d)
+                else:
+                    mapping_to[rule] = [d]
+                if d in mapping_from:
+                    mapping_from[d].append(rule)
+                else:
+                    mapping_from[d] = [rule]
+                    
+        #find starting rules
+        visited1 = []
+        starting_rules = []
+        for rule, deps in self.graph.iteritems():
+            if rule not in visited1:
+                if rule in mapping_from:
+                    mark_visited(rule,mapping_from,visited1,starting_rules)
+                else:
+                    starting_rules.append(rule)
+                    visited1.append(rule)
+        
+        structure_graphs = {}
+        for starting_rule in starting_rules:
+            structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
+            
+        return structure_graphs
+
+    def compute_reduced_structure_graph(self,structure_graphs,starting_rules):
+        
+        def update_refs(node_dict):
+            for node_name,node in node_dict.iteritems():
+                for suc_name, edges in node.outgoing_edges.iteritems():
+                    node.outgoing_edges[suc_name].origin = node
+                for pred_name, edge in node.incoming_edges.iteritems():
+                    node.incoming_edges[pred_name].destination = node
+        
+        def merge_dicts(old,new,repeat = False):
+            if repeat:
+                for key in new:
+                    old[key] = -1
+            else:
+                for key in new:
+                    if key in old:    
+                        if old[key] > 0 and new[key] > 0:
+                            old[key] += new[key]
+                        elif new[key] < 0:
+                            old[key] = new[key]
+                    else:
+                        old[key] = new[key]
+        
+                        
+        def remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set,save_list = None):
+            if not save_list:
+                save_list =  []
+            visited_from = {}
+            disconnecting = {}
+            for orig_tuple in lazy_del_set:
+                orig = orig_tuple[1]
+                if orig in visited_from:
+                    continue
+                visited_from[orig] = True
+                dests = {}
+                for dest_tuple in lazy_del_set:
+                    if orig == dest_tuple[1]:
+                        dests[dest_tuple[0]] = True
+                valid_delete = True
+                for key,val in node_dict[orig].outgoing_edges.iteritems():#only allow deleting if all children are deleted
+                    if not key in dests:
+                        valid_delete = False
+                        
+                if orig in save_list:
+                    disconnecting[orig] = True
+                    valid_delete = True
+                    
+                if valid_delete:
+                    for dest_name,visited in dests.iteritems():
+                        if dest_name in reduced_node_dict:
+                            if orig in reduced_node_dict[dest_name].incoming_edges:
+                                del reduced_node_dict[dest_name].incoming_edges[orig]   
+                            if orig in  reduced_node_dict and dest_name in reduced_node_dict[orig].outgoing_edges:
+                                del reduced_node_dict[orig].outgoing_edges[dest_name]
+            del_set = set()
+            for orig_tuple in lazy_del_set:
+                if orig_tuple[1] not in disconnecting:
+                    del_set.add(orig_tuple[1])    
+            for orig in del_set:
+                if orig in reduced_node_dict:
+                    if not reduced_node_dict[orig].incoming_edges:
+                        del reduced_node_dict[orig]
 
         def transfer_childs_successors(receptor, origin,  lazy_del_set, node_dict, red_node_dict, branched = False):
             rn = receptor.name
@@ -2104,73 +2129,53 @@ class StructureGraphBuilder(object):
             update_refs(reduced_node_dict)
             return reduced_node_dict
             
-        #obtain predecessors and successors
-        mapping_to = {}
-        mapping_from = {}
-        for rule, deps in self.graph.iteritems():
-            for d in deps:
-                if rule in mapping_to:
-                    mapping_to[rule].append(d)
-                else:
-                    mapping_to[rule] = [d]
-                if d in mapping_from:
-                    mapping_from[d].append(rule)
-                else:
-                    mapping_from[d] = [rule]
-                    
-        #find starting rules
-        visited1 = []
-        starting_rules = []
-        for rule, deps in self.graph.iteritems():
-            if rule not in visited1:
-                if rule in mapping_from:
-                    mark_visited(rule,mapping_from,visited1,starting_rules)
-                else:
-                    starting_rules.append(rule)
-                    visited1.append(rule)
-        
-        structure_graphs = {}
         rsg1 = {} 
         rsg2 = {} 
         rsg3 = {} 
         rsg4 = {}
         rsg_list = [rsg1,rsg2,rsg3,rsg4]
         for starting_rule in starting_rules:
-            structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
             rsg1[starting_rule] = aggregate_redundant_nodes(structure_graphs[starting_rule],starting_rule)
             rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
             rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
             rsg4[starting_rule] = aggregate_redundant_splits(rsg3[starting_rule],starting_rule)
-        
+        return rsg_list
+
+    def write_struct_graph_dot(self, file_name, rsg_list, starting_rules):
+                        
+        def node_name(rule):
+            # GraphViz dot cannot handle . in the node names.
+            return rule.replace('.', '_')
+                    
         index = 1
         for rsg in rsg_list:      
             visited = {}
-            labels = ""
+            nodes = ""
             edges = ""
             output = "digraph {\n"
             for starting_rule in starting_rules:
                 node_dict = rsg[starting_rule]
                 s_rule = node_dict[starting_rule]
-                if rule is None:
+                if s_rule is None:
                     continue
                 rule_stack = [s_rule]
                 while rule_stack:
                     if self.debug:
-                        print rule
+                        print s_rule
                     rule_node = rule_stack.pop()
                     if rule_node.name in visited:
                         continue
                     else:
                         visited[rule_node.name]=1
-                    deps = rule_node.outgoing_edges#successors
+                    deps = rule_node.outgoing_edges
                     rule = rule_node.name
-                    labels += "    " + node_name(rule) + ' [label=<' + rule
+                    nodes += "    " + node_name(rule) + ' [label=<' + rule
                     for attr in rule_node.attrs:
                         if rule_node.attrs[attr] > 0:
-                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(rule_node.attrs[attr])+'</FONT>'
+                            nodes += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(rule_node.attrs[attr])+'</FONT>'
                         else:
-                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
-                    labels +='>]\n'
+                            nodes += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+                    nodes +='>]\n'
                     for e_name, edge in deps.iteritems():
                         if self.debug:
                             print edge
@@ -2193,42 +2198,42 @@ class StructureGraphBuilder(object):
                             
                         edges += '>]\n'
                                 
-                output += "    #Nodes\n" + labels + "\n    #Edges\n"+ edges
+                output += "    #Nodes\n" + nodes + "\n    #Edges\n"+ edges
             output += "}"
 
             with file(file_name[0:3] + file_name[3:] + "_rsg" + str(index)+ ".gv", 'w') as out:
                 out.write(output)
                 
             index += 1
-
-    def write_dot(self, file_name):
-        self.write_slightly_reduced_dot(file_name)
+            
+    def write_full_graph_dot(self,file_name):
         def node_name(rule):
             # GraphViz dot cannot handle . in the node names.
             return rule.replace('.', '_')
-        labels = ""
+        nodes = ""
+        edges = ""
         output = "digraph {\n"
         for rule, deps in self.graph.iteritems():
-            labels += "    " + node_name(rule) + ' [label=<' + rule
+            nodes += "    " + node_name(rule) + ' [label=<' + rule
             if rule in self.edge_params and rule in self.edge_params[rule]:
                 self_params = self.edge_params[rule][rule]
                 for attr in self_params:
                     if attr in self.attrs:
                         if self_params[attr] > 0:
-                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self_params[attr])+'</FONT>'
+                            nodes += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(self_params[attr])+'</FONT>'
                         else:
-                            labels += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
-            labels +='>]\n'
+                            nodes += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+            nodes +='>]\n'
             for d in deps:
-                output += '    ' + node_name(rule) + ' -> ' + node_name(d)
-                output += '[label=<'
+                edges += '    ' + node_name(rule) + ' -> ' + node_name(d)
+                edges += '[label=<'
                 if d in self.count[rule]:
                     if self.count[rule][d] > 0:
-                        output += str(self.count[rule][d])+ ''
+                        edges += str(self.count[rule][d])+ ''
                     else:
-                        output += 'n'
+                        edges += 'n'
                 else:
-                    output += '1'
+                    edges += '1'
                 for con_name, cons in self.connections.iteritems():
                     if rule in cons and d in cons[rule]:
                         output += '; '+cons[rule][d]
@@ -2237,18 +2242,32 @@ class StructureGraphBuilder(object):
                     for attr in e_params:
                         if attr in self.attrs:
                             if e_params[attr] > 0:
-                                output += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(e_params[attr])+'</FONT>'
+                                edges += '<BR /><FONT POINT-SIZE="10">'+attr+':'+str(e_params[attr])+'</FONT>'
                             else:
-                                output += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
-                output += '>]\n'
+                                edges += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
+                edges += '>]\n'
                     
-        output += labels
+        output += "    #Nodes\n" + nodes + "\n    #Edges\n"+ edges
         output += "}"
 
         with file(file_name + ".gv", 'w') as out:
             out.write(output)
 
+    def write_dot(self, file_name, raw = True, struct = False, layered = False):
+        if raw:
+            self.write_full_graph_dot(file_name)
+        if struct or layered:
+            structure_graphs = self.compute_structure_graph()
+            starting_rules = structure_graphs.keys()
+            if layered:
+                reduced_structure_graph_layers = self.compute_reduced_structure_graph(structure_graphs,starting_rules)
+                self.write_struct_graph_dot(file_name,reduced_structure_graph_layers,starting_rules)
+            else:
+                self.write_struct_graph_dot(file_name,[structure_graphs],starting_rules)
+            
+        
+
     def write_pdf(self, file_name):
         file_name2 = "gv/"+file_name
-        self.write_dot(file_name2)
+        self.write_dot(file_name2,layered = True)
         os.system("dot -Tpdf " + file_name2 + ".gv -o " + file_name2 + ".pdf")
