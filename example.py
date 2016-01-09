@@ -23,7 +23,7 @@ builder = GrammarBuilder(ast)
 grammar = builder.grammar
 #print grammar
 
-debug = True
+debug = False
 graph_builder = StructureGraphBuilder(grammar,debug=debug)
 #print graph_builder.graph
 #graph_builder.write_dot(sys.argv[1][:-4])

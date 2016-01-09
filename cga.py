@@ -1418,7 +1418,7 @@ class StructureGraphBuilder(object):
                     else:
                         starting_rules.append(iter_rule)
                         
-        def remove_nodes_lazily2(reduced_node_dict, node_dict,lazy_del_set,save_list = None):
+        def remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set,save_list = None):
             if not save_list:
                 save_list =  []
             visited_from = {}
@@ -1534,7 +1534,7 @@ class StructureGraphBuilder(object):
             get_children2(s_rule,None,mapping_suc,mapping_pred,sg_node_dict)
             return sg_node_dict   
 
-        def transfer_childs_successors2(receptor, origin,  lazy_del_set, node_dict, red_node_dict, branched = False):
+        def transfer_childs_successors(receptor, origin,  lazy_del_set, node_dict, red_node_dict, branched = False):
             rn = receptor.name
             on = origin.name
             receptor.consumed_node_names.add(on)
@@ -1578,7 +1578,7 @@ class StructureGraphBuilder(object):
                 lazy_del_set.add((sn,on,))  
             lazy_del_set.add((on,rn,))
         
-        def copy_successors2(red_node_dict, node_dict, copy, origin, child, merge_comps = False):
+        def copy_successors(red_node_dict, node_dict, copy, origin, child, merge_comps = False):
             
             def gather_multiplicity(origin, child):
                 mult1 = 0
@@ -1616,7 +1616,7 @@ class StructureGraphBuilder(object):
                 copy.outgoing_edges[chn] = edge
                 child.incoming_edges[cpn] = edge
                 
-        def aggregate_redundant_nodes2(node_dict,starting_rule):  
+        def aggregate_redundant_nodes(node_dict,starting_rule):  
 
             def test_mergeable(node_dict,old_node,new_child):
                 cname = new_child.name
@@ -1710,12 +1710,12 @@ class StructureGraphBuilder(object):
                     mergeable = test_mergeable(node_dict,old_node,child)
                     if mergeable:
                         merge_dicts(new_node.attrs,child.attrs)
-                        transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
                         only_delete_child[new_node.name]=True
                         if child.name in only_delete_child:
                             del only_delete_child[child.name]
                     else:
-                        copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child)
+                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
                 
                 if not new_node.attrs and not new_node.outgoing_edges and not rep_pred:
                     return None
@@ -1728,7 +1728,7 @@ class StructureGraphBuilder(object):
             lazy_del_set = set()
             only_delete_child = {}
             reduce_successors(reduced_node_dict, node_dict, starting_rule, lazy_del_set, only_delete_child)
-            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
+            remove_nodes_lazily(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
             update_refs(reduced_node_dict)
             return reduced_node_dict
             
@@ -1742,7 +1742,7 @@ class StructureGraphBuilder(object):
                         types[t][suc_name] = edge.types[t]
             return types
                         
-        def aggregate_redundant_cases2(node_dict, starting_rule):  
+        def aggregate_redundant_cases(node_dict, starting_rule):  
 
             def test_mergeable(node_dict, old_node, new_child):
                 
@@ -1782,12 +1782,12 @@ class StructureGraphBuilder(object):
                     if mergeable:
                         merge_dicts(new_node.attrs,child.attrs)
                         branched = True
-                        transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict, branched)
+                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict, branched)
                         only_delete_child[new_node.name]=True
                         if child.name in only_delete_child:
                             del only_delete_child[child.name]
                     else:
-                        copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child)
+                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, child)
                 
                 reduced_node_dict[new_node.name] = new_node
                 return reduced_node_dict[new_node.name]
@@ -1798,11 +1798,11 @@ class StructureGraphBuilder(object):
             lazy_del_set = set()
             only_delete_child = {}
             reduce_successors(reduced_node_dict, node_dict, starting_rule, lazy_del_set, only_delete_child)
-            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
+            remove_nodes_lazily(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
             update_refs(reduced_node_dict)
             return reduced_node_dict
             
-        def aggregate_redundant_comps2(node_dict,starting_rule):  
+        def aggregate_redundant_comps(node_dict,starting_rule):  
 
             def find_splits(reduced_node_dict, node_dict, s_rule):
                 old_node = node_dict[s_rule]
@@ -1868,7 +1868,7 @@ class StructureGraphBuilder(object):
                     children.append(child)
                 for child in children:
                     merge_dicts(new_node.attrs,child.attrs)  
-                    transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                    transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
                     only_delete_child[new_node.name]=True
                     if child.name in only_delete_child:
                         del only_delete_child[child.name]
@@ -1894,7 +1894,7 @@ class StructureGraphBuilder(object):
                 for child in children:
                     new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc
                     
-                    copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child, merge_comps)
+                    copy_successors(reduced_node_dict, node_dict, new_node, old_node, child, merge_comps)
                 
                 reduced_node_dict[new_node.name] = new_node
                 return reduced_node_dict[new_node.name]
@@ -1937,7 +1937,7 @@ class StructureGraphBuilder(object):
                 for child in children:
                     new_node.rep_trans_suc = new_node.rep_trans_suc or reduced_node_dict[child.name].rep_trans_suc
                     merge_comps = should_reduce
-                    copy_successors2(reduced_node_dict, node_dict, new_node, old_node, child,merge_comps)
+                    copy_successors(reduced_node_dict, node_dict, new_node, old_node, child,merge_comps)
                 if not should_reduce or new_node.name not in reduced_node_dict:
                     reduced_node_dict[new_node.name] = new_node
                     
@@ -1949,11 +1949,11 @@ class StructureGraphBuilder(object):
             lazy_del_set = set()
             only_delete_child = {}
             reduce_successors(reduced_node_dict, node_dict, starting_rule,lazy_del_set, only_delete_child)
-            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
+            remove_nodes_lazily(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
             update_refs(reduced_node_dict)
             return reduced_node_dict
         
-        def aggregate_redundant_splits2(node_dict,starting_rule):
+        def aggregate_redundant_splits(node_dict,starting_rule):
             def gather_finite_attrs(node_dict, attrs, root_name, node_name):
                 node = node_dict[node_name]
                 new_attrs = {}
@@ -2053,7 +2053,7 @@ class StructureGraphBuilder(object):
                             if self.debug:
                                 print "Transfering: \n " + str(child2) + "to \n" + str(child)
                             merge_dicts(child.attrs,child2.attrs)
-                            transfer_childs_successors2(child, child2,  lazy_del_set, node_dict, reduced_node_dict)
+                            transfer_childs_successors(child, child2,  lazy_del_set, node_dict, reduced_node_dict)
                             only_delete_child[child]=True
                             if child2.name in only_delete_child:
                                 del only_delete_child[child2.name]
@@ -2075,19 +2075,19 @@ class StructureGraphBuilder(object):
                     if copy_directly:
                         merge_dicts(new_node.attrs,child.attrs)
                         lazy_child_removal.add(child.name)
-                        transfer_childs_successors2(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
+                        transfer_childs_successors(new_node, child,  lazy_del_set, node_dict, reduced_node_dict)
                 if len(lazy_del_set)>0:
                     save_list = []
                     for child in children:
                         if child.name not in lazy_child_removal:
                             save_list.append(child.name)
-                    remove_nodes_lazily2(reduced_node_dict, node_dict,lazy_del_set,save_list)
+                    remove_nodes_lazily(reduced_node_dict, node_dict,lazy_del_set,save_list)
                     keys = list(lazy_del_set)
                     for key in keys:
                         lazy_del_set.discard(key)
                 for child in children:
                     if child.name not in lazy_child_removal:
-                        copy_successors2(reduced_node_dict, node_dict, new_node, old_node, reduced_node_dict[child.name])
+                        copy_successors(reduced_node_dict, node_dict, new_node, old_node, reduced_node_dict[child.name])
                 for node_name,value in multiplicity.iteritems():
                     reduced_node_dict[node_name].incoming_edges[new_node.name].multiplicity *= value
                 reduced_node_dict[new_node.name] = new_node
@@ -2100,7 +2100,7 @@ class StructureGraphBuilder(object):
             processed_splits = {}
             only_delete_child = {}
             reduce_successors(reduced_node_dict, node_dict, starting_rule, lazy_del_set, processed_splits, only_delete_child)
-            remove_nodes_lazily2(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
+            remove_nodes_lazily(reduced_node_dict, node_dict, lazy_del_set, list(only_delete_child.keys()))
             update_refs(reduced_node_dict)
             return reduced_node_dict
             
@@ -2137,10 +2137,10 @@ class StructureGraphBuilder(object):
         rsg_list = [rsg1,rsg2,rsg3,rsg4]
         for starting_rule in starting_rules:
             structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
-            rsg1[starting_rule] = aggregate_redundant_nodes2(structure_graphs[starting_rule],starting_rule)
-            rsg2[starting_rule] = aggregate_redundant_cases2(rsg1[starting_rule],starting_rule)
-            rsg3[starting_rule] = aggregate_redundant_comps2(rsg2[starting_rule],starting_rule)
-            rsg4[starting_rule] = aggregate_redundant_splits2(rsg3[starting_rule],starting_rule)
+            rsg1[starting_rule] = aggregate_redundant_nodes(structure_graphs[starting_rule],starting_rule)
+            rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
+            rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
+            rsg4[starting_rule] = aggregate_redundant_splits(rsg3[starting_rule],starting_rule)
         
         index = 1
         for rsg in rsg_list:      
@@ -2155,7 +2155,8 @@ class StructureGraphBuilder(object):
                     continue
                 rule_stack = [s_rule]
                 while rule_stack:
-                    print rule
+                    if self.debug:
+                        print rule
                     rule_node = rule_stack.pop()
                     if rule_node.name in visited:
                         continue
@@ -2171,7 +2172,8 @@ class StructureGraphBuilder(object):
                             labels += '<BR /><FONT POINT-SIZE="10">'+attr+':n</FONT>'
                     labels +='>]\n'
                     for e_name, edge in deps.iteritems():
-                        print edge
+                        if self.debug:
+                            print edge
                         rule_stack.append(edge.destination)
                         edges += '    ' + node_name(edge.origin.name) + ' -> ' + node_name(edge.destination.name)
                         edges += '[label=<'
