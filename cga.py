@@ -1033,6 +1033,7 @@ class StructureGraphBuilder(object):
         self.grammar = grammar
         self.graph = {}
         self.generate_graph()
+        self.compute_structure_graph()
 
     def generate_graph(self):
         
@@ -1490,13 +1491,13 @@ class StructureGraphBuilder(object):
                     starting_rules.append(rule)
                     visited1.append(rule)
         
-        structure_graphs = {}
+        self.structure_graphs = {}
         for starting_rule in starting_rules:
-            structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
+            self.structure_graphs[starting_rule] = get_structure_graph(mapping_to,mapping_from,starting_rule)
             
-        return structure_graphs
+        self.starting_rules = self.structure_graphs.keys()
 
-    def compute_reduced_structure_graph(self,structure_graphs,starting_rules):
+    def compute_reduced_structure_graph(self):
         
         def update_refs(node_dict):
             for node_name,node in node_dict.iteritems():
@@ -2134,14 +2135,14 @@ class StructureGraphBuilder(object):
         rsg3 = {} 
         rsg4 = {}
         rsg_list = [rsg1,rsg2,rsg3,rsg4]
-        for starting_rule in starting_rules:
-            rsg1[starting_rule] = aggregate_redundant_nodes(structure_graphs[starting_rule],starting_rule)
+        for starting_rule in self.starting_rules:
+            rsg1[starting_rule] = aggregate_redundant_nodes(self.structure_graphs[starting_rule],starting_rule)
             rsg2[starting_rule] = aggregate_redundant_cases(rsg1[starting_rule],starting_rule)
             rsg3[starting_rule] = aggregate_redundant_comps(rsg2[starting_rule],starting_rule)
             rsg4[starting_rule] = aggregate_redundant_splits(rsg3[starting_rule],starting_rule)
         return rsg_list
 
-    def write_struct_graph_dot(self, file_name, rsg_list, starting_rules):
+    def write_struct_graph_dot(self, file_name, rsg_list):
                         
         def node_name(rule):
             # GraphViz dot cannot handle . in the node names.
@@ -2153,7 +2154,7 @@ class StructureGraphBuilder(object):
             nodes = ""
             edges = ""
             output = "digraph {\n"
-            for starting_rule in starting_rules:
+            for starting_rule in self.starting_rules:
                 node_dict = rsg[starting_rule]
                 s_rule = node_dict[starting_rule]
                 if s_rule is None:
@@ -2200,13 +2201,17 @@ class StructureGraphBuilder(object):
                                 
                 output += "    #Nodes\n" + nodes + "\n    #Edges\n"+ edges
             output += "}"
-
-            with file(file_name[0:3] + file_name[3:] + "_rsg" + str(index)+ ".gv", 'w') as out:
-                out.write(output)
+            
+            if len(rsg_list) == 1:
+                with file(file_name[0:3] + file_name[3:] + "_sg.gv", 'w') as out:
+                    out.write(output)
+            else:
+                with file(file_name[0:3] + file_name[3:] + "_rsg" + str(index)+ ".gv", 'w') as out:
+                    out.write(output)
                 
             index += 1
             
-    def write_full_graph_dot(self,file_name):
+    def write_raw_graph_dot(self,file_name):
         def node_name(rule):
             # GraphViz dot cannot handle . in the node names.
             return rule.replace('.', '_')
@@ -2250,24 +2255,22 @@ class StructureGraphBuilder(object):
         output += "    #Nodes\n" + nodes + "\n    #Edges\n"+ edges
         output += "}"
 
-        with file(file_name + ".gv", 'w') as out:
+        with file(file_name + "_raw.gv", 'w') as out:
             out.write(output)
 
-    def write_dot(self, file_name, raw = True, struct = False, layered = False):
+    def write_dot(self, file_name, raw = False, layered = False):
         if raw:
-            self.write_full_graph_dot(file_name)
-        if struct or layered:
-            structure_graphs = self.compute_structure_graph()
-            starting_rules = structure_graphs.keys()
+            self.write_raw_graph_dot(file_name)
+        if layered:
             if layered:
-                reduced_structure_graph_layers = self.compute_reduced_structure_graph(structure_graphs,starting_rules)
-                self.write_struct_graph_dot(file_name,reduced_structure_graph_layers,starting_rules)
-            else:
-                self.write_struct_graph_dot(file_name,[structure_graphs],starting_rules)
+                reduced_structure_graph_layers = self.compute_reduced_structure_graph()
+                self.write_struct_graph_dot(file_name,reduced_structure_graph_layers)
+        
+        self.write_struct_graph_dot(file_name,[self.structure_graphs])
             
         
 
     def write_pdf(self, file_name):
         file_name2 = "gv/"+file_name
-        self.write_dot(file_name2,layered = True)
+        self.write_dot(file_name2,layered=True)
         os.system("dot -Tpdf " + file_name2 + ".gv -o " + file_name2 + ".pdf")
